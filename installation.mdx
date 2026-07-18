@@ -1,0 +1,180 @@
+---
+title: "Install Rehike on Your Server or Local Machine"
+sidebarTitle: "Installation"
+description: "Step-by-step guide to installing Rehike manually with PHP 8.0+, Composer, and Apache. Covers prerequisites, setup, and first launch."
+---
+
+Rehike runs as a PHP application served through Apache. Because it proxies and re-renders YouTube pages server-side, it requires a functioning web server rather than a simple static host. This guide walks through every step of a manual installation, from cloning the repository to viewing your first Hitchhiker-era YouTube page.
+
+<Note>
+  There is currently no automated installer for Rehike. All installation steps must be performed manually. The process is straightforward for anyone familiar with PHP and Apache.
+</Note>
+
+## Prerequisites
+
+Before you begin, ensure the following are available on your system:
+
+| Requirement | Minimum Version | Notes |
+|---|---|---|
+| **PHP** | 8.0+ | Rehike's integrity check enforces `PHP_VERSION_ID >= 80000` at startup |
+| **Composer** | Any current release | Used to install PHP dependencies |
+| **Apache** | Any current release | Must have `mod_rewrite` enabled |
+
+<Warning>
+  PHP versions older than 8.0 are explicitly rejected by Rehike's startup integrity check. The server will refuse to run and display an error page if you attempt to use an older PHP version.
+</Warning>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Rehike source code from GitHub into your desired directory:
+
+    ```bash
+    git clone https://github.com/Rehike/Rehike.git
+    cd Rehike
+    ```
+
+    This creates a `Rehike/` directory containing the full project source.
+  </Step>
+
+  <Step title="Install PHP Dependencies with Composer">
+    Rehike requires three Composer packages: Twig (templating), Protocol Buffers (InnerTube API), and BlueLibraries DNS. Install them by running:
+
+    ```bash
+    composer install
+    ```
+
+    Composer reads `composer.json` and downloads all required packages into the `vendor/` directory. Do not skip this step — Rehike will not boot without its dependencies in place.
+  </Step>
+
+  <Step title="Configure Apache Virtual Host">
+    Create or edit an Apache virtual host configuration to point the document root at your Rehike directory. A minimal configuration looks like:
+
+    ```apache
+    <VirtualHost *:80>
+        ServerName rehike.localhost
+        DocumentRoot /path/to/Rehike
+
+        <Directory /path/to/Rehike>
+            Options Indexes FollowSymLinks
+            AllowOverride All
+            Require all granted
+        </Directory>
+    </VirtualHost>
+    ```
+
+    The critical directive is `AllowOverride All`. Without it, Apache will not read the `.htaccess` file that Rehike relies on for routing.
+  </Step>
+
+  <Step title="Verify mod_rewrite and .htaccess Routing">
+    Rehike ships with a `.htaccess` file that routes every request through `index.php`:
+
+    ```apacheconf
+    RewriteEngine On
+    RewriteRule . index.php [L]
+    ```
+
+    This rule is essential — it ensures that all paths (video pages, channel pages, search results, etc.) are handled by Rehike's own router rather than the filesystem.
+
+    Confirm that `mod_rewrite` is enabled on your Apache installation:
+
+    ```bash
+    # On Debian/Ubuntu-based systems:
+    sudo a2enmod rewrite
+    sudo systemctl restart apache2
+
+    # On RHEL/Fedora-based systems:
+    # mod_rewrite is typically bundled; verify in httpd.conf:
+    grep -i "mod_rewrite" /etc/httpd/conf/httpd.conf
+    ```
+  </Step>
+
+  <Step title="Open in a Browser">
+    With Apache running and your virtual host configured, navigate to the host you set up (for example, `http://rehike.localhost` or `http://localhost` if you pointed the default host at Rehike).
+
+    On first load, Rehike will automatically:
+    - Create a `cache/` directory for storing rendered output.
+    - Create a `config.json` file with all default configuration values.
+
+    You do not need to create these files manually.
+  </Step>
+</Steps>
+
+<Note>
+  Rehike's `integrity_check.php` runs automatically at startup before any page is rendered. If a prerequisite is missing — such as an outdated PHP version — it will display a clear error page explaining the problem rather than a generic PHP fatal error.
+</Note>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Apache returns a 403 or 404 — Rehike pages do not load">
+    This usually means `AllowOverride All` is not set for the Rehike directory, so Apache is ignoring the `.htaccess` rewrite rules. Check your virtual host configuration and confirm the `<Directory>` block includes `AllowOverride All`, then restart Apache.
+
+    Also verify that `mod_rewrite` is enabled:
+
+    ```bash
+    apache2ctl -M | grep rewrite
+    ```
+
+    If `rewrite_module` does not appear in the output, enable it with `sudo a2enmod rewrite` and restart Apache.
+  </Accordion>
+
+  <Accordion title="PHP version too old — integrity check error page appears">
+    Rehike requires PHP 8.0 or newer. The startup integrity check explicitly tests `PHP_VERSION_ID < 80000` and halts with a descriptive error page if the condition is true.
+
+    Check your current PHP version:
+
+    ```bash
+    php --version
+    ```
+
+    If the version shown is below 8.0, upgrade PHP through your system's package manager or a version manager such as [phpenv](https://github.com/phpenv/phpenv). If multiple PHP versions are installed, make sure Apache is configured to use the correct one (check `libphp` module in your Apache config or your PHP-FPM pool configuration).
+  </Accordion>
+
+  <Accordion title="Composer is not found or not installed">
+    If `composer install` fails because `composer` is not a recognised command, install Composer from the official source:
+
+    ```bash
+    # Download the installer
+    php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+    # Run the installer
+    php composer-setup.php
+    # Move to a directory in PATH
+    sudo mv composer.phar /usr/local/bin/composer
+    # Clean up
+    php -r "unlink('composer-setup.php');"
+    ```
+
+    Alternatively, follow the platform-specific instructions at [getcomposer.org/download](https://getcomposer.org/download/).
+  </Accordion>
+
+  <Accordion title="File permission errors on Unix systems">
+    Rehike needs to write to the `cache/` directory and to `config.json` at the project root. If your web server user (commonly `www-data` on Debian/Ubuntu) does not have write permission to the project directory, these writes will fail silently or produce errors.
+
+    Grant write permission to the relevant directories:
+
+    ```bash
+    # Allow the web server user to write cache and config
+    sudo chown -R www-data:www-data /path/to/Rehike/cache
+    sudo chown www-data:www-data /path/to/Rehike/config.json
+
+    # Or, less precisely, make the whole project writable by the web server:
+    sudo chown -R www-data:www-data /path/to/Rehike
+    ```
+
+    On shared hosts or systems with different web server users, replace `www-data` with the appropriate user (for example, `apache` on RHEL-based systems).
+  </Accordion>
+
+  <Accordion title="vendor/ directory is missing — class not found errors">
+    If you see PHP fatal errors about classes not being found (for example, from the `Twig` or `Google\Protobuf` namespaces), it means `composer install` has not been run or did not complete successfully.
+
+    Navigate to the Rehike project root and run:
+
+    ```bash
+    composer install
+    ```
+
+    Do not copy or move only part of the project files — the `vendor/` directory must be present and populated.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,267 @@
+---
+title: "Rehike Network API: HTTP Requests and InnerTube Integration"
+sidebarTitle: "Network API"
+description: "The Network class provides URL requests, InnerTube API calls, and YouTube Data API v3 access. All methods return Promises for async handling."
+---
+
+The `Rehike\Network` class is the single gateway for all outbound HTTP communication in Rehike. It wraps the lower-level `NetworkCore` library with Rehike-specific logic — automatic SSL verification settings, DNS overrides drawn from user config, InnerTube context generation, and authentication header injection. Every public method is static, and every method that performs a network operation returns a `Promise<IResponse>` so that responses can be handled asynchronously via the [Promise API](/reference/async-promises).
+
+## Import
+
+```php
+use Rehike\Network;
+```
+
+The `IResponse` interface used in return types lives in `Rehike\Network\IResponse`. You typically do not need to import it directly unless you are type-hinting a callback parameter.
+
+---
+
+## Methods
+
+### `Network::urlRequest()`
+
+Makes a generic HTTP request to any URL. This is the lowest-level public method; it applies only the global SSL and DNS settings from user config and does not attach any YouTube authentication.
+
+```php
+public static function urlRequest(string $url, array $opts = []): Promise/*<IResponse>*/
+```
+
+<ParamField path="url" type="string" required>
+  The fully-qualified URL to request.
+</ParamField>
+
+<ParamField path="opts" type="array">
+  Optional request options. Recognised keys:
+
+  | Key | Type | Description |
+  |---|---|---|
+  | `headers` | `string[]` | Associative array of additional HTTP headers to send |
+  | `disableSslVerification` | `bool` | Skip TLS certificate verification (inherits from `advanced.disableSslVerification` if not set) |
+  | `dnsOverride` | `string` | IP address of the DNS resolver to use for this request |
+  | `method` | `string` | HTTP method, e.g. `"GET"` or `"POST"` |
+  | `body` | `string` | Raw request body for POST requests |
+</ParamField>
+
+<ResponseField name="return" type="Promise<IResponse>">
+  A Promise that resolves with the HTTP response object.
+</ResponseField>
+
+**Example:**
+
+```php
+Network::urlRequest("https://example.com/api/data")
+    ->then(function(IResponse $response) {
+        echo $response->getText();
+    });
+
+Network::run();
+```
+
+---
+
+### `Network::urlRequestFirstParty()`
+
+Identical to `urlRequest()`, but merges the current user's InnerTube authentication headers (cookie, `Authorization`, `Origin`, `Host`) into the request before sending. Use this for non-InnerTube YouTube endpoints that still require a logged-in session, such as `/getAccountSwitcherEndpoint`.
+
+<Warning>
+  Do not use this method for requests to third-party domains. Authentication headers are scoped to `www.youtube.com` and must not be forwarded elsewhere.
+</Warning>
+
+```php
+public static function urlRequestFirstParty(string $url, array $opts = []): Promise/*<IResponse>*/
+```
+
+<ParamField path="url" type="string" required>
+  A fully-qualified `youtube.com` URL.
+</ParamField>
+
+<ParamField path="opts" type="array">
+  Same options as `urlRequest()`. Any `headers` key is merged with (not replaced by) the auth headers.
+</ParamField>
+
+<ResponseField name="return" type="Promise<IResponse>">
+  A Promise that resolves with the authenticated HTTP response.
+</ResponseField>
+
+---
+
+### `Network::innertubeRequest()`
+
+The primary method for calling the YouTube InnerTube private API. It builds a full InnerTube request body (including `context` with client name and version, visitor data, and optional auth headers), sends it as an HTTP POST to `https://www.youtube.com/youtubei/v1/{action}`, and returns a Promise for the response.
+
+```php
+public static function innertubeRequest(
+    string $action,
+    array  $body             = [],
+    string $clientName       = "WEB",
+    string $clientVersion    = "2.20250928.01.00",
+    bool   $ignoreErrors     = false,
+    bool   $useAuthentication = true
+): Promise/*<IResponse>*/
+```
+
+<ParamField path="action" type="string" required>
+  The InnerTube endpoint to call, e.g. `"browse"`, `"player"`, `"search"`, `"next"`, `"reel/reel_item_watch"`.
+</ParamField>
+
+<ParamField path="body" type="array">
+  Additional fields to merge into the InnerTube request body, such as `browseId`, `query`, or `videoId`. The `context` object is generated automatically and must not be included here. Pass `"hl"` to override the request language.
+</ParamField>
+
+<ParamField path="clientName" type="string">
+  InnerTube client name. Defaults to `"WEB"`. Other values used in Rehike: `"WEB_EMBEDDED_PLAYER"`.
+</ParamField>
+
+<ParamField path="clientVersion" type="string">
+  InnerTube client version string. Defaults to `"2.20250928.01.00"`.
+</ParamField>
+
+<ParamField path="ignoreErrors" type="bool">
+  When `true`, the Promise is resolved even if the HTTP status code is not `200`. Useful when you want to inspect error responses rather than rejecting. Defaults to `false`.
+</ParamField>
+
+<ParamField path="useAuthentication" type="bool">
+  When `true` (the default), authentication headers are included if the user is signed in. Set to `false` for requests that must be anonymous.
+</ParamField>
+
+<ResponseField name="return" type="Promise<IResponse>">
+  Resolves with the InnerTube response on HTTP 200 (or any status when `ignoreErrors` is `true`). Rejects with an `InnertubeFailedRequestException` on non-200 responses.
+</ResponseField>
+
+**Example — browse the homepage:**
+
+```php
+use Rehike\Network;
+use Rehike\Network\IResponse;
+
+$request = Network::innertubeRequest(
+    action: "browse",
+    body: [
+        "browseId" => "FEwhat_to_watch"
+    ]
+);
+
+$request->then(function(IResponse $response) {
+    echo $response->getText();
+})->catch(function(\Throwable $e) {
+    echo "An error occurred.";
+});
+
+Network::run();
+```
+
+---
+
+### `Network::innertubeRequestFake()`
+
+Returns a fake InnerTube response sourced from a local JSON file. The signature mirrors `innertubeRequest()`, making it straightforward to swap in during development. Pass `"error"` as `$localFilePath` to simulate a failed request.
+
+```php
+public static function innertubeRequestFake(
+    string $localFilePath,
+    string $action,
+    array  $body             = [],
+    string $clientName       = "WEB",
+    string $clientVersion    = "2.20240816.01.00",
+    bool   $ignoreErrors     = false,
+    bool   $useAuthentication = true
+): Promise/*<IResponse>*/
+```
+
+<Tip>
+  This method is intended for development and debugging only. Remove all calls to it before merging production code.
+</Tip>
+
+---
+
+### `Network::dataApiRequest()`
+
+Calls the public YouTube Data API v3. Uses a separate API key and a distinct set of browser-spoofing headers; does not use InnerTube authentication.
+
+```php
+public static function dataApiRequest(
+    string $action,
+    array  $params,
+    bool   $post   = false
+): Promise/*<IResponse>*/
+```
+
+<ParamField path="action" type="string" required>
+  The Data API v3 resource path, e.g. `"videos"`, `"channels"`, `"playlists"`.
+</ParamField>
+
+<ParamField path="params" type="array" required>
+  For GET requests: an associative array of query-string parameters appended to the URL. For POST requests: the request body sent as JSON.
+</ParamField>
+
+<ParamField path="post" type="bool">
+  When `true`, the request is sent as HTTP POST with the params encoded as a JSON body. Defaults to `false` (GET).
+</ParamField>
+
+<ResponseField name="return" type="Promise<IResponse>">
+  Resolves with the Data API response.
+</ResponseField>
+
+---
+
+### `Network::run()`
+
+Flushes the network queue and runs the event loop until all pending requests have been resolved or rejected. This must be called after queueing requests with the methods above if you are outside the normal Rehike controller lifecycle.
+
+```php
+public static function run(): void
+```
+
+<Note>
+  In normal Rehike operation, `Network::run()` is called automatically by `HitchhikerController` at the end of the request handling pipeline. You only need to call it manually if you are building a standalone script or a controller that bypasses the standard boot sequence.
+</Note>
+
+---
+
+### `Network::getSessionRequestLog()`
+
+Returns the full log of every request made during the current PHP execution, including its type, URL or action, body, and a reference to the underlying Promise. Intended for the Rehike debugger.
+
+```php
+public static function getSessionRequestLog(): array
+```
+
+<ResponseField name="return" type="array">
+  An array of associative arrays. Each entry contains at minimum:
+
+  | Key | Type | Description |
+  |---|---|---|
+  | `type` | `string` | `"url"`, `"innertube"`, or `"dataapi"` |
+  | `url` / `action` | `string` | The request target |
+  | `opts` / `body` | `object` | The options or body sent with the request |
+  | `INTERNAL_promise` | `Promise` | The Promise instance (internal use only) |
+</ResponseField>
+
+---
+
+## Authentication methods (internal)
+
+The following methods are called by Rehike's sign-in subsystem to configure which authentication headers are attached to first-party and InnerTube requests. They are not intended to be called from feature code.
+
+| Method | Description |
+|---|---|
+| `useAuthService()` | Adds `Authorization`, `Origin`, `Host`, and `Cookie` headers from the legacy `AuthManager` |
+| `useAuthService2()` | Adds the same headers using the newer `GaiaAuthManager` SAPISID hash |
+| `useAuthGaiaId()` | Appends `X-Goog-AuthUser` and `X-Goog-PageId` for brand accounts (legacy) |
+| `useAuthGaiaId2(?string $gaiaId, string $authUser)` | Same as above using Sign-In v2 credentials |
+| `rejectAuthService()` | Clears all stored auth headers, e.g. when sign-in fails |
+
+<Warning>
+  Calling any of these methods outside of the authentication bootstrap sequence will corrupt the auth state for the current request. They are marked `@internal` in the source and should not appear in feature code.
+</Warning>
+
+---
+
+## Constants
+
+| Constant | Value |
+|---|---|
+| `INNERTUBE_API_HOST` | `https://www.youtube.com` |
+| `V3_API_HOST` | `https://www.googleapis.com` |
+
+Both constants are `protected` and are accessible only within `Network` and any subclass.

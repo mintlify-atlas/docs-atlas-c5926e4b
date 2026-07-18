@@ -1,72 +1,88 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "Rehike",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#5c64f4",
+    "light": "#acb4fc",
+    "dark": "#ffffff"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/bdf1d847-06bd-4151-b03e-50a3e244afbd.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/f5cf9483-55db-4419-81cb-331fd5cf7957.svg",
+    "dark": "https://media.brand.dev/f5cf9483-55db-4419-81cb-331fd5cf7957.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/Rehike/Rehike"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/Rehike/Rehike"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "configuration"
+            ]
+          },
+          {
+            "group": "How Rehike Works",
+            "pages": [
+              "architecture/overview",
+              "architecture/pages-and-routing",
+              "architecture/controllers-models-views",
+              "architecture/innertube"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/guide",
+              "contributing/code-standards",
+              "contributing/i18n"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer Reference",
+        "groups": [
+          {
+            "group": "Core APIs",
+            "pages": [
+              "reference/config-api",
+              "reference/network-api",
+              "reference/async-promises"
+            ]
+          },
+          {
+            "group": "Templating",
+            "pages": [
+              "reference/twig-templates",
+              "reference/spf"
+            ]
+          },
+          {
+            "group": "Codebase Reference",
+            "pages": [
+              "reference/directory-structure",
+              "reference/modules",
+              "reference/router"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

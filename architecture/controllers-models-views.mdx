@@ -1,0 +1,231 @@
+---
+title: "Controllers, Models, and Views in Rehike's MVC System"
+sidebarTitle: "MVC Architecture"
+description: "Rehike uses a controller–model–view architecture. Learn how controllers coordinate requests, models transform InnerTube data, and Twig templates render HTML."
+---
+
+Every page in Rehike is implemented across three distinct layers: a **controller** that orchestrates the request, a **model** that normalises the raw API data, and a **view** (Twig template) that converts the model into HTML. This separation — referred to in the Rehike codebase as a CMV (Controller-Model-View) system — keeps each concern isolated, makes InnerTube API changes easier to absorb, and allows templates to remain close to their original archived form.
+
+Understanding these three layers (plus the routing table that connects URLs to controllers) is all you need to work on any Rehike page.
+
+## Overview
+
+<CardGroup cols={3}>
+  <Card title="Controller" icon="code">
+    Receives the HTTP request, fires InnerTube API calls, creates the page model, and assigns it to `$yt->page`. Acts as the insertion point and coordinator.
+  </Card>
+  <Card title="Model" icon="database">
+    Accepts raw InnerTube JSON and restructures it into typed PHP objects that templates can consume. Insulates views from upstream API shape changes.
+  </Card>
+  <Card title="View / Template" icon="window">
+    A Twig file in `template/hitchhiker/` that iterates the model and emits HTML. Receives the entire `$yt` state object as the global `yt` variable.
+  </Card>
+</CardGroup>
+
+## Controllers
+
+A controller is an insertion point. It is responsible for bootstrapping a page: obtaining the data needed and sending it to the user as an HTML response generated from a template and a model.
+
+All page controllers live in the `controllers/` directory and must implement the `IController` interface. In practice, page controllers extend `NirvanaController` (from `controllers/core/`) and additionally implement one of the async controller interfaces. The typical flow inside a controller's `onGetAsync()` method is:
+
+1. Fire one or more `Network::innertubeRequest()` calls.
+2. `yield Promise::all([...])` to await all responses concurrently.
+3. Pass the responses to model/bakery classes.
+4. Assign the resulting model to `$yt->page`.
+
+```php
+// From controllers/WatchPageController.php
+public function onGetAsync(): Promise
+{
+    return async(function() {
+
+        $yt = $this->yt;
+
+        // 1. Fire concurrent InnerTube requests
+        $nextRequest = Network::innertubeRequest(
+            "next",
+            ["videoId" => $yt->videoId]
+        );
+
+        $playerRequest = Network::innertubeRequest(
+            "player",
+            ["videoId" => $yt->videoId, /* ... */]
+        );
+
+        // 2. Await all responses
+        $responses = yield Promise::all([
+            "next"   => $nextRequest,
+            "player" => $playerRequest,
+        ]);
+
+        $nextResponse   = $responses["next"]->getJson();
+        $playerResponse = $responses["player"]->getJson();
+
+        // 3. Pass through the model/bakery layer
+        $watchBakery = new WatchBakery();
+        $watchModelResult = yield $watchBakery->bake(
+            yt:      $yt,
+            data:    $nextResponse,
+            videoId: $yt->videoId,
+        );
+
+        // 4. Assign to $yt->page — the template reads from here
+        $yt->page = $watchModelResult;
+    });
+}
+```
+
+### Available page controllers
+
+| Controller file | URL(s) | Description |
+|---|---|---|
+| `FeedPageController.php` | `/`, `/feed/**` | Home feed and subscription feed |
+| `WatchPageController.php` | `/watch` | Video watch page |
+| `ChannelPageController.php` | `/user/**`, `/channel/**`, `/c/**` | Channel pages and default catch-all |
+| `ResultsPageController.php` | `/results` | Search results |
+| `PlaylistPageController.php` | `/playlist` | Playlist view |
+| `AttributionPageController.php` | `/attribution` | Video attribution/source info |
+| `ChannelSwitcherPageController.php` | `/channel_switcher` | Account/channel switcher |
+| `OopsPageController.php` | `/oops` | Error page |
+| `Html5PageController.php` | `/html5` | HTML5 browser check page |
+
+<Note>
+  `ChannelPageController` is also the `"default"` route for both GET and POST requests. This is what allows bare username paths like `/@mkbhd` or `/PewDiePie` to resolve to channel pages. If the channel lookup fails, this controller is also responsible for rendering the 404 page.
+</Note>
+
+## Models
+
+Models represent data. In Rehike, a model takes the raw InnerTube JSON response and restructures it into a PHP object graph that the Twig template can traverse cleanly. The work of interpreting InnerTube's deeply nested renderer tree happens in PHP rather than in the template itself.
+
+This separation matters for maintenance: when YouTube changes the shape of an InnerTube response, only the model layer needs to be updated — not the template.
+
+All models live under the `models/` directory, organised by feature area:
+
+| Directory | Contents |
+|---|---|
+| `models/Watch/` | Watch page bakery and watch-8 renderer models |
+| `models/Browse/` | InnerTube browse response converter |
+| `models/Feed/` | Home feed app bar navigation model |
+| `models/Channels/` | Channel page models |
+| `models/Comments/` | Comment thread and reply models |
+| `models/Results/` | Search results page models |
+| `models/Playlist/` | Playlist panel and item models |
+| `models/Masthead/` | Top navigation bar model |
+| `models/Guide/` | Left-side guide drawer model |
+| `models/Common/` | Shared types used across multiple pages (e.g. `MAlert`) |
+| `models/Appbar/` | App bar / secondary navigation model |
+| `models/Share/` | Share dialog model |
+| `models/Picker/` | Account/emoji picker models |
+| `models/Footer/` | Page footer model |
+| `models/Dialog/` | Modal dialog models |
+| `models/Rehike/` | Rehike-specific UI models (config pages, etc.) |
+
+The watch page uses a `WatchBakery` class as its model entry point:
+
+```php
+// models/Watch/WatchBakery.php is the top-level model for the watch page.
+$watchBakery = new WatchBakery();
+
+$watchModelResult = yield $watchBakery->bake(
+    yt:      $yt,
+    data:    $nextResponse,   // raw InnerTube "next" response JSON
+    videoId: $yt->videoId,
+    rydData: $rydResponse     // Return YouTube Dislike API data (optional)
+);
+
+$yt->page = $watchModelResult;
+```
+
+## Views / Templates
+
+Views and templates are the same thing. Rehike uses [Twig](https://twig.symfony.com/) as its templating language. All page templates live in `template/hitchhiker/` and extend `core.twig`, which provides the outer HTML shell (doctype, `<head>`, masthead, guide, and footer).
+
+The template engine exposes the global `yt` variable, which is the full `YtApp` state object populated by the Bootloader and the controller. By convention, the page-specific model is always available at `yt.page`.
+
+```twig
+{# template/hitchhiker/watch.twig #}
+{% extends "core.twig" %}
+
+{% set pageType = 'watch' %}
+{% set appbarEnabled = true %}
+{% set defaultGuideVisibility = false %}
+
+{%- block page_class -%}
+video-{{ yt.videoId }} {{ (yt.theaterMode) ? 'watch-wide watch-stage-mode' }}
+{% endblock %}
+```
+
+```twig
+{# template/hitchhiker/feed.twig #}
+{% extends "core.twig" %}
+{% import 'core/macros.twig' as core %}
+
+{% set pageType = 'feed' %}
+{% set appbarEnabled = true %}
+{% set defaultGuideVisibility = true %}
+{% set defaultAppbarVisibility = not yt.appbar.nav is empty %}
+```
+
+### Page template files
+
+| Template | Route | Page |
+|---|---|---|
+| `feed.twig` | `/`, `/feed/**` | Home and subscription feeds |
+| `watch.twig` | `/watch` | Video player and metadata |
+| `channel.twig` | `/user/**`, `/channel/**` | Channel home, videos, playlists |
+| `results.twig` | `/results` | Search results |
+| `playlist.twig` | `/playlist` | Playlist view |
+| `attribution.twig` | `/attribution` | Video attribution page |
+| `channel_switcher.twig` | `/channel_switcher` | Account switcher overlay |
+| `oops.twig` | `/oops` | Error page |
+| `html5.twig` | `/html5` | HTML5 check |
+| `core.twig` | (base) | Outer shell — extended by all pages |
+
+<Tip>
+  When implementing a new page in Rehike, always put the page model in `yt.page`. Some older templates in the codebase use a different convention (attaching data directly to the `yt` object), but all new code should follow the `yt.page` pattern.
+</Tip>
+
+## Routing connection
+
+The `router.php` routing table is what connects a URL to a controller. It maps glob URL patterns to controller class names as strings. The class name is the file path relative to `controllers/` with the `.php` extension removed and namespace separators added:
+
+```php
+// router.php
+Router::get([
+    "/"        => FeedPageController::class,     // controllers/FeedPageController.php
+    "/watch"   => WatchPageController::class,    // controllers/WatchPageController.php
+    "/results" => ResultsPageController::class,  // controllers/ResultsPageController.php
+    "/playlist" => PlaylistPageController::class,
+    "/user/**"  => ChannelPageController::class,
+    "/channel/**" => ChannelPageController::class,
+    "/rehike/config" => rehike\RehikeConfigPageController::class,
+    // ...
+    "default"  => ChannelPageController::class
+]);
+```
+
+See [Routing](/architecture/pages-and-routing) for the complete routing table and pattern syntax.
+
+## Putting it all together
+
+```
+HTTP GET /watch?v=dQw4w9WgXcQ
+         │
+         ▼
+   router.php  →  WatchPageController
+                         │
+                         ├─ Network::innertubeRequest("next",   {videoId})
+                         ├─ Network::innertubeRequest("player", {videoId})
+                         │
+                         ▼  (responses arrive)
+                    WatchBakery::bake()
+                         │
+                         ▼
+                    $yt->page = $watchModel
+                         │
+                         ▼
+              template/hitchhiker/watch.twig
+                         │
+                         ▼
+                   HTML → browser
+```

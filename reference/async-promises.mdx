@@ -1,0 +1,335 @@
+---
+title: "Async PHP and the Rehike Promise API"
+sidebarTitle: "Async & Promises"
+description: "Rehike implements a JavaScript-style Promise API and single-threaded event loop in PHP for non-blocking InnerTube requests. Learn to use async functions and Promises."
+---
+
+Rehike is a PHP application, which you would normally expect to be fully synchronous. Yet if you browse the source you will find `Promise`, `async`, and `yield` all over the place. This is not magic — Rehike ships its own single-threaded asynchronous execution engine that works similarly to a JavaScript event loop, along with a clone of the ECMAScript Promise API built on top of PHP Generators.
+
+The motivation is practical: InnerTube responses take time to arrive over the network. A Promise-based model lets Rehike queue multiple requests, perform background work while they are in-flight, and handle responses in the correct order — all without threads or a multi-process architecture.
+
+## Why async in PHP?
+
+Consider a page that needs a browse response and a player response. In a fully synchronous model, Rehike would send the first request, block until it finishes, then send the second request and block again. With Promises and an event loop, both requests are dispatched immediately and their handlers run as soon as each one resolves — cutting total wall-clock time roughly in half for pages that make multiple independent InnerTube calls.
+
+The mental model is the callback model:
+
+1. You have a **request function** that sends a network call and registers a callback to be invoked on response.
+2. You have a **background worker** that can be called repeatedly while the request is in-flight.
+3. You have a **response handler** that finally processes the data once it arrives.
+
+Promises are an abstraction over that pattern that replace deeply-nested callbacks with chainable `.then()` and `.catch()` calls, and `async`/`yield` provide an even cleaner syntax on top of that.
+
+<Note>
+  Two axioms are fundamental to working with Promises in Rehike:
+
+  - **Async functions cannot be used synchronously.** If you have a function that returns a `Promise`, you must register a callback (`.then()`) or `yield` it inside another `async` function to access the resolved value. Trying to read the value directly will fail because the data does not exist yet.
+  - **`async` functions and Promises are the same thing with different syntax.** An `async` function always returns a `Promise`. A `yield` expression inside an `async` function is exactly equivalent to `await` in JavaScript or C#.
+</Note>
+
+## Import
+
+For Promise-only usage:
+
+```php
+use Rehike\Async\Promise;
+```
+
+For `async` function support alongside Promises:
+
+```php
+use Rehike\Async\{
+    function async,
+    Promise
+};
+```
+
+---
+
+## Promise basics
+
+### Creating a Promise
+
+The standard way to create a Promise is to pass a callback to the constructor. The callback receives two arguments — `$resolve` and `$reject` — which are themselves callables. Passing data into `$resolve` marks the Promise as resolved and triggers any registered `.then()` callbacks. Passing a `Throwable` (or string) into `$reject` marks it as rejected and triggers any registered `.catch()` callbacks.
+
+```php
+$promise = new Promise(function($resolve, $reject) {
+    // Perform some work, then call $resolve or $reject.
+    $resolve("some value");
+});
+```
+
+A Promise that has neither been resolved nor rejected is called **pending**. Code outside the Promise can continue running while it is pending — that is the whole point of the async model.
+
+#### Stub Promises
+
+When you need a Promise that resolves immediately with no meaningful value (for example, to satisfy a return type in a conditional branch that does not actually make a network request), use this compact pattern:
+
+```php
+new Promise(fn($r) => $r())
+```
+
+### `then()` — handling resolution
+
+Register a callback to be invoked when the Promise resolves. The callback receives the resolved value as its first argument. `then()` returns the same Promise, allowing method chaining.
+
+```php
+public function then(callable $cb): Promise
+```
+
+### `catch()` — handling rejection
+
+Register a callback to be invoked when the Promise is rejected. The callback receives a `Throwable` as its first argument. `catch()` returns the same Promise.
+
+```php
+public function catch(callable $cb): Promise
+```
+
+### `Promise::all()` — waiting for multiple Promises
+
+Accepts an array (or rest-syntax spread) of Promises and returns a new Promise that resolves with an array of all resolved values once every input Promise has resolved.
+
+```php
+public static function all(...$promises): Promise/*<array>*/
+```
+
+### Real example — InnerTube browse request
+
+```php
+$request = Network::innertubeRequest(
+    action: "browse",
+    body: [
+        "browseId" => "FEwhat_to_watch"
+    ]
+);
+
+$request->then(function(Response $response) {
+    echo $response->getText();
+})->catch(function(\Throwable $e) {
+    echo "An error occurred.";
+});
+```
+
+The `then` callback fires when the network response arrives with HTTP 200. The `catch` callback fires if the request fails or if an `InnertubeFailedRequestException` is thrown.
+
+---
+
+## Async functions
+
+`async` functions are syntactic sugar for Promises built on PHP's `Generator` feature. Inside an `async` function, `yield` unwraps a Promise in the same way that `await` does in JavaScript or C#. This allows you to write sequential-looking code that is, under the hood, still fully asynchronous.
+
+### Basic shape
+
+```php
+public function someMethod(): Promise/*<string>*/
+{
+    return async(function() use (&$someVar) {
+        $result = yield someOtherPromiseReturningFunction();
+        return $result;
+    });
+}
+```
+
+- Always `return async(function() { ... });` — the `async()` wrapper converts the Generator into a Promise.
+- Use `yield` in place of `await` to suspend execution and wait for a Promise to resolve.
+- The return value of `yield` is the resolved value of the yielded Promise.
+- The value you `return` from inside the async closure becomes the resolved value of the outer Promise.
+
+### Real example — `getUcid()`
+
+The following is a real method from Rehike's utility code that resolves a channel UCID from the current request path:
+
+```php
+public static function getUcid($request): Promise/*<?string>*/
+{
+    return async(function() use (&$request) {
+        if (in_array($request->path[0], ["channel", "user", "c"]))
+        {
+            switch($request->path[0])
+            {
+                case "channel":
+                    $ucid = $request->path[1] ?? "";
+                    if (substr($ucid, 0, 2) == "UC")
+                    {
+                        return $ucid;
+                    }
+                    else
+                    {
+                        return "";
+                    }
+                    break;
+                case "user":
+                case "c":
+                    return yield self::getUcidFromUrl(explode("?", $_SERVER["REQUEST_URI"])[0]);
+                    break;
+            }
+        }
+
+        return yield self::getUcidFromUrl(explode("?", $_SERVER["REQUEST_URI"])[0]);
+    });
+}
+```
+
+Notice that `yield self::getUcidFromUrl(...)` suspends the async function until `getUcidFromUrl` resolves, then resumes with the resolved value — exactly like `await` in other languages.
+
+### Async vs Promise side-by-side
+
+The two tabs below show the same `getUcid()` logic written first with `async`/`yield` and then using raw Promises. Both are functionally identical.
+
+<Tabs>
+  <Tab title="async / yield">
+    ```php
+    public static function getUcid($request): Promise/*<?string>*/
+    {
+        return async(function() use (&$request) {
+            if (in_array($request->path[0], ["channel", "user", "c"]))
+            {
+                switch($request->path[0])
+                {
+                    case "channel":
+                        $ucid = $request->path[1] ?? "";
+                        if (substr($ucid, 0, 2) == "UC")
+                        {
+                            return $ucid;
+                        }
+                        else
+                        {
+                            return "";
+                        }
+                        break;
+                    case "user":
+                    case "c":
+                        return yield self::getUcidFromUrl(
+                            explode("?", $_SERVER["REQUEST_URI"])[0]
+                        );
+                        break;
+                }
+            }
+
+            return yield self::getUcidFromUrl(
+                explode("?", $_SERVER["REQUEST_URI"])[0]
+            );
+        });
+    }
+    ```
+  </Tab>
+  <Tab title="Raw Promise">
+    ```php
+    public static function getUcid($request): Promise/*<?string>*/
+    {
+        return new Promise(function ($resolve, $reject) use (&$request) {
+            if (in_array($request->path[0], ["channel", "user", "c"]))
+            {
+                switch ($request->path[0])
+                {
+                    case "channel":
+                        $ucid = $request->path[1] ?? "";
+                        if (substr($ucid, 0, 2) == "UC")
+                        {
+                            $resolve($ucid);
+                            return;
+                        }
+                        else
+                        {
+                            $resolve("");
+                            return;
+                        }
+                        break;
+                    case "user":
+                    case "c":
+                        self::getUcidFromUrl(
+                            explode("?", $_SERVER["REQUEST_URI"])[0]
+                        )->then(function(?string $response) use ($resolve) {
+                            $resolve($response);
+                        });
+                        break;
+                }
+            }
+
+            self::getUcidFromUrl(
+                explode("?", $_SERVER["REQUEST_URI"])[0]
+            )->then(function(?string $response) use ($resolve) {
+                $resolve($response);
+            });
+        });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+In most cases the `async` version is significantly easier to follow. Prefer it for any function that must chain more than one or two Promises.
+
+---
+
+## The Event Loop
+
+Promises in Rehike do not resolve themselves passively. Resolution callbacks are dispatched by the **event loop**, which must be running for any `.then()` or `.catch()` handler to execute.
+
+### Import
+
+```php
+use Rehike\Async\EventLoop\EventLoop;
+```
+
+### `EventLoop::run()`
+
+Starts the event loop and blocks until all registered events have finished. Any events that are added to the loop while it is already running are picked up automatically in the next iteration — you do not need to call `run()` again.
+
+```php
+public static function run(): void
+```
+
+<Note>
+  `EventLoop::run()` is a synchronous call from the caller's perspective. It does not return until every pending event is finished. Code written after the call will always see fully-resolved Promises.
+</Note>
+
+In normal Rehike usage, `HitchhikerController` calls `Network::run()` (which internally calls `EventLoop::run()`) at the end of the request pipeline. You only need to call `EventLoop::run()` directly in standalone scripts or unconventional controller flows.
+
+**Example — manual event loop invocation:**
+
+```php
+use Rehike\Network;
+use Rehike\Async\EventLoop\EventLoop;
+
+$result = null;
+
+Network::innertubeRequest("browse", ["browseId" => "FEwhat_to_watch"])
+    ->then(function($response) use (&$result) {
+        $result = json_decode($response->getText());
+    });
+
+EventLoop::run(); // Blocks here until the request finishes.
+
+// $result is now populated.
+var_dump($result);
+```
+
+### How the event loop works
+
+The event loop is built on PHP's Generator system. Each `Promise` with a callback, and each `async` function that `yield`s, is registered as an **event** on the loop. The loop iterates over all pending events in a round-robin fashion, calling each one in turn. Events may yield at any time to hand control back to the loop so that other events can make progress.
+
+When all events are fulfilled, the loop performs cleanup, fires any deferred Promise resolutions (to flatten the call stack and allow garbage collection), and then returns.
+
+The nesting limit for event loop recursion is 512 levels (`EVENT_LOOP_NESTING_LIMIT`). Exceeding this limit throws an exception with the message `"The event loop entered an infinite recursion loop."`.
+
+---
+
+## Generic type comments
+
+Throughout Rehike's source you will see return types written like this:
+
+```php
+public static function innertubeRequest(...): Promise/*<IResponse>*/
+```
+
+The `/*<IResponse>*/` part is a **generic type comment** — a PHP documentation convention borrowed from languages like TypeScript and Java. PHP does not have native generics, so the type parameter is written as a comment immediately after the class name. It tells you what type of value the Promise will resolve with.
+
+Types can nest:
+
+```php
+Promise/*<Promise<string>>*/
+```
+
+This is rare and usually a sign that something needs to be flattened with `yield`, but it is technically valid.
+
+Static analysis tools and IDE plugins that understand PHPDoc (such as PHPStan or Psalm) can be configured to parse this pattern and provide type-checking for Promise resolution values, even though PHP itself ignores the comments at runtime.

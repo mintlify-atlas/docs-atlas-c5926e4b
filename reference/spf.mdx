@@ -1,0 +1,178 @@
+---
+title: "SPF (Structured Page Fragments) in Rehike"
+sidebarTitle: "SPF"
+description: "How Rehike implements YouTube's original SPF library for single-page navigation. Learn how to check for SPF requests in templates and add SPF support to new pages."
+---
+
+[SPF — Structured Page Fragments](https://youtube.github.io/spfjs) — is the single-page application library that YouTube built and used internally. Rather than performing a full HTML reload on each navigation, SPF performs a lightweight AJAX request to fetch only the parts of the page that changed, then surgically updates the relevant DOM nodes. Rehike implements SPF to match the original Hitchhiker experience, where navigating between pages felt instantaneous past the first load.
+
+## What SPF is used for
+
+YouTube used SPF in two distinct ways, both of which Rehike replicates:
+
+1. **Page navigation** — when a user clicks a link after the first page load, SPF intercepts the request and fetches a JSON response containing only the updated page body, CSS, and scripts. The browser updates `#content` and other named fragments without a full reload.
+2. **AJAX endpoints** — some interactive features (such as guide expansion or inline actions) also rely on SPF-formatted JSON responses to update specific DOM nodes.
+
+## How Rehike implements SPF
+
+### The old approach (deprecated)
+
+Historically, Rehike used a custom PHP library called **SpfPhp** that post-processed the generated HTML response and converted it into SPF JSON format. This approach worked but was slow, because it required rendering the full HTML page first and then transforming it.
+
+### The current approach — Twig-based SPF
+
+The modern implementation generates SPF responses directly from Twig, using the same template inheritance tree as full HTML responses. No post-processing step is needed.
+
+The routing decision happens in `core.twig`:
+
+```twig
+{% if yt.spf %}
+    {% set rehike_base_template = "core/core_spf.twig" %}
+{% else %}
+    {% set rehike_base_template = appbarEnabled
+            ? "core/core.twig"
+            : "core/core_legacy.twig"
+    %}
+{% endif %}
+
+{% extends rehike_base_template %}
+```
+
+When `yt.spf` is `true`, the template system extends `core/core_spf.twig` instead of the standard HTML shell. Every block defined by the page template (`content`, `appbarContent`, `head_css`, `foot_scripts`, etc.) is rendered identically — only the outer container changes.
+
+On the PHP side, `HitchhikerController` sets the `Content-Type` response header to `application/json` for SPF requests so that the YouTube JavaScript client accepts the response as valid SPF data rather than discarding it.
+
+<Note>
+  SPF responses are **JSON, not HTML**. The browser's SPF client library parses the JSON and injects each fragment's `html` value into the corresponding DOM element. Visiting an SPF endpoint directly in a browser will show raw JSON.
+</Note>
+
+## The SPF response format
+
+`core/core_spf.twig` produces a JSON object with three top-level keys:
+
+```json
+{
+    "head": "<style>...</style>",
+    "body": {
+        "content": "<div id=\"watch7-container\">...</div>",
+        "appbar-content": "<ul class=\"appbar-nav\">...</ul>",
+        "alerts": "",
+        "player-unavailable": "",
+        "player-playlist": "",
+        "header": "",
+        "early-body": "",
+        "debug": "",
+        "ticker-content": ""
+    },
+    "attr": {
+        "content":          { "class": "content-alignment" },
+        "page":             { "class": "watch clearfix" },
+        "player":           { "class": "player-width player-height" },
+        "player-unavailable": { "class": "" },
+        "player-playlist":  { "class": "" },
+        "body":             { "class": "ltr-layout ..." }
+    },
+    "foot": "<script>yt.setConfig(...);</script>",
+    "title": "Rick Astley - Never Gonna Give You Up - YouTube"
+}
+```
+
+- **`head`** — CSS `<link>` tags and any inline sizing scripts for the new page.
+- **`body`** — a map of DOM element IDs to their new inner HTML content.
+- **`attr`** — a map of DOM element IDs to attribute objects (primarily `class`).
+- **`foot`** — JavaScript configuration scripts that run after the DOM update.
+- **`title`** — the new document title.
+
+The `body` and `attr` keys use the same DOM element IDs as the full HTML layout, which is how SPF knows which node to update for each fragment.
+
+## Checking for SPF in templates
+
+Use the `yt.spf` boolean anywhere you need to behave differently in an SPF context versus a full page load. The variable is available in every template automatically.
+
+```twig
+{% if yt.spf %}
+    {# SPF-specific logic #}
+{% endif %}
+
+{% if not yt.spf %}
+    {# Things that shouldn't appear in SPF responses #}
+{% endif %}
+```
+
+Common uses include:
+
+- **Skipping full-page decorations** — `{% if not yt.spf %}` guards around things like the `<html>` or `<body>` wrapper elements that should never appear inside a JSON value.
+- **SPF-only initialisation** — some JavaScript modules behave differently on soft navigation; `{% if yt.spf %}` lets you emit a different configuration block in that case.
+
+## page_fragments/ — sharing content between SPF and full page
+
+The most important design principle of Rehike's SPF system is that **the same template fragment renders both the HTML version and the JSON version**. Both `core/core.twig` and `core/core_spf.twig` include files from the `page_fragments/` directory.
+
+```
+template/hitchhiker/page_fragments/
+├── alerts.twig                  ← alert banners (yt.page.alerts)
+├── content.class.twig           ← CSS class for #content
+├── page.class.twig              ← CSS class for #page
+├── player.class.twig            ← CSS class for the player element
+├── player_unavailable.twig      ← player unavailable overlay HTML
+├── player_unavailable.class.twig
+├── player_playlist.twig         ← playlist panel HTML
+├── player_playlist.class.twig
+└── ticker_content.twig          ← ticker/breaking-news bar
+```
+
+In `core_spf.twig`, each fragment is rendered and then JSON-encoded inline:
+
+```twig
+"alerts": {{ include("page_fragments/alerts.twig")|json_encode|raw }},
+"content": {% apply json_encode|raw %}
+    {% block content %}{% endblock %}
+{% endapply %},
+"attr": {
+    "content": {
+        "class": {{ include("page_fragments/content.class.twig")|json_encode|raw }}
+    }
+}
+```
+
+In the full HTML `core/core.twig`, the same fragments are included directly without encoding:
+
+```twig
+{% include "page_fragments/alerts.twig" %}
+{% block content %}{% endblock %}
+```
+
+This means a bug fix or layout change to `page_fragments/alerts.twig` automatically applies to both response types — there is no separate SPF-specific copy to maintain.
+
+<Tip>
+  When building a new page, put any content that should survive SPF navigation inside a `page_fragments/` partial and include it from both `core/core.twig` and `core/core_spf.twig`. Keep page-specific logic in the page template's `{% block content %}` block, which is already wired into both cores automatically.
+</Tip>
+
+## Adding SPF support to a new page
+
+Follow these steps to ensure your new page works correctly with both full loads and SPF navigation:
+
+1. **Identify shared fragments.** Any HTML that must update on navigation (player state, class attributes on `#content`, alert banners) should live in `page_fragments/`.
+
+2. **Use `{% block content %}`** for the main page body. This block is rendered inside the SPF `body.content` key automatically.
+
+3. **Guard full-page-only markup** with `{% if not yt.spf %}` if needed, though in most cases the block architecture handles this without explicit checks.
+
+4. **Set CSS classes through fragments.** If your page needs a specific class on `#content` or `#page`, set `pageType` and `page_class` in your template — `page_fragments/content.class.twig` and `page_fragments/page.class.twig` read these variables:
+
+   ```twig
+   {% set pageType = 'yourpage' %}
+   {% set page_class = 'your-extra-class' %}
+   ```
+
+5. **Verify the `Content-Type` header.** SPF requests are detected and handled by `HitchhikerController`. If you are routing through the standard controller, this is automatic. If you have a custom controller, ensure it sets `Content-Type: application/json` when `$yt->spf` is `true`.
+
+## Summary of key files
+
+| File | Role |
+|---|---|
+| `template/hitchhiker/core.twig` | Routes to HTML or SPF core based on `yt.spf` |
+| `template/hitchhiker/core/core_spf.twig` | Generates the SPF JSON response envelope |
+| `template/hitchhiker/core/core.twig` | Generates the full HTML page |
+| `template/hitchhiker/page_fragments/` | Shared fragments used by both response types |
+| `modules/Rehike/TemplateManager.php` | Registers `yt` global and drives rendering |

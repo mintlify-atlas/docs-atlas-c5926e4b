@@ -1,0 +1,155 @@
+---
+title: "Rehike Modules: Core Library Components"
+sidebarTitle: "Modules"
+description: "Overview of every major module in Rehike's modules/Rehike/ directory — from the async engine and network layer to the config manager, i18n, and debugger."
+---
+
+The `modules/Rehike/` directory is the heart of Rehike's functionality. Almost every operation the server performs — from booting and routing to making InnerTube requests and rendering templates — is implemented here. All classes under this path share the `Rehike\` namespace and are loaded on demand by the custom autoloader in `includes/rehike_autoloader.php`.
+
+<Note>
+  The sibling directory `modules/generated/` contains protobuf-compiled PHP classes generated from `.proto` files in `src/protos/`. These files are auto-generated and should **not** be edited by hand — modify the source `.proto` definitions and regenerate instead.
+</Note>
+
+## Module directory
+
+<CardGroup cols={2}>
+  <Card title="Async/" icon="rotate">
+    A custom single-threaded async engine built on top of PHP generators. Provides a `Promise` API, an `EventLoop`, a `Concurrency` helper for `await`-style synchronous resolution, and a pub/sub system. Used throughout Rehike wherever non-blocking I/O is needed.
+  </Card>
+
+  <Card title="Attributes/" icon="tag">
+    PHP attribute classes used to annotate Rehike classes and methods with metadata. Provides a structured way to attach declarative information to code without runtime side effects.
+  </Card>
+
+  <Card title="Boot/" icon="bolt">
+    The application bootstrapper. `Bootloader.php` orchestrates startup by running init tasks (config, network, sign-in) then setup tasks (templates, i18n, controllers, player). Also manages `ShutdownEvents` and exposes `YtStateManager` for initialising the global `$yt` state object.
+  </Card>
+
+  <Card title="ConfigDefinitions.php + ConfigManager/" icon="sliders">
+    `ConfigDefinitions.php` declares the full schema of every Rehike configuration option. `ConfigManager/` provides `Config` — the runtime accessor used throughout the codebase to read and write user settings stored in `config.json`.
+  </Card>
+
+  <Card title="ContextManager.php" icon="map-pin">
+    Manages per-request context shared across modules, including the visitor data string (`VISITOR_INFO1_LIVE`) used for signed-out InnerTube sessions.
+  </Card>
+
+  <Card title="ControllerV2/" icon="sitemap">
+    The second-generation controller and routing subsystem. Contains `Router.php` (see the [Router reference](/reference/router)), `BaseController.php`, `RequestMetadata.php`, and controller interfaces (`IGetController`, `IPostController`, and their async counterparts).
+  </Card>
+
+  <Card title="Debugger/" icon="bug">
+    Debugging context and tooling. Logs network requests, wraps errors with additional context, and exposes a `Debugger::shutdown()` hook called at the end of every request. Integrates with the `Logging` module.
+  </Card>
+
+  <Card title="DisableRehike/" icon="eye-slash">
+    Logic for temporarily or persistently disabling Rehike's custom frontend for the current session, reverting requests to pass straight through to YouTube.
+  </Card>
+
+  <Card title="Ds/" icon="layer-group">
+    Custom data structure classes. Includes `EasyAccessMap`, a wrapper over PHP arrays that allows property-style (`->key`) access in addition to array-style access — used by `RequestMetadata` for headers and query parameters.
+  </Card>
+
+  <Card title="ErrorHandler/" icon="triangle-exclamation">
+    Registers a global PHP error handler that intercepts fatal errors and exceptions and presents them through Rehike's own error display rather than a raw PHP trace.
+  </Card>
+
+  <Card title="Exception/" icon="circle-exclamation">
+    Base exception classes and typed exception definitions shared across multiple Rehike modules.
+  </Card>
+
+  <Card title="FileSystem.php" icon="folder-open">
+    A small utility class providing filesystem helpers (path construction, safe file reads/writes) used by modules that need to interact with the local filesystem.
+  </Card>
+
+  <Card title="FormattedString.php" icon="align-left">
+    Represents a YouTube formatted text string (runs of text with optional bold, italic, or link formatting) and provides conversion helpers for rendering in templates.
+  </Card>
+
+  <Card title="Helper/" icon="wrench">
+    Page-specific helper utilities consumed by controllers and models. Contains `ChannelUtils.php` (channel page helpers), `WatchUtils.php` (watch page helpers), `WebV2Shelves.php` (shelf layout converters), `CommentsContinuation.php`, and a `Player/` sub-directory for player experiment flag helpers.
+  </Card>
+
+  <Card title="i18n/" icon="globe">
+    Internationalisation bootstrap and locale management. `BootServices` initialises the i18n system during startup; `i18n` provides `getAllTemplates()` for fetching translation strings. String files live in the top-level `i18n/` directory.
+  </Card>
+
+  <Card title="InnertubeContext.php" icon="youtube">
+    Builds and manages the InnerTube API context object included in every InnerTube request body — client info, locale, visitor data, and so on.
+  </Card>
+
+  <Card title="Logging/" icon="file-lines">
+    Application-level logging. `LogFileManager` handles log file I/O and prunes old log files during the shutdown phase. Used by the Debugger and error handler.
+  </Card>
+
+  <Card title="Network.php + Network/" icon="wifi">
+    The HTTP client layer. `Network.php` exposes the top-level API — `innertubeRequest()`, `urlRequest()`, `urlRequestFirstParty()`. The `Network/` sub-directory contains `NetworkCore` (cURL wrapper with DNS override support), request/response types, and the Data API client.
+  </Card>
+
+  <Card title="Player/" icon="play">
+    YouTube player integration. `PlayerCore` fetches, caches, and exposes player configuration (signature timestamps, JS URL) needed to bootstrap the HTML5 player on the client side.
+  </Card>
+
+  <Card title="Profiler.php" icon="stopwatch">
+    A lightweight performance profiler. Wrap any code region with `Profiler::start('label')` / `Profiler::end('label')` — timings are serialised and emitted as an `X-Rehike-Profiler-Result` response header when the profiler is enabled in config.
+  </Card>
+
+  <Card title="RequestSession.php" icon="clock-rotate-left">
+    Captures and exposes the current HTTP request's headers and POST body for use across the request lifecycle, independent of controller code.
+  </Card>
+
+  <Card title="ResourceConstantsStore.php" icon="box-archive">
+    Initialises and stores client-side resource constants (pixel GIFs, static asset hashes, etc.) that are injected as Twig globals during the template setup task.
+  </Card>
+
+  <Card title="RuntimeInfo.php" icon="server">
+    Provides metadata about the current PHP runtime environment — version, SAPI type, and other host information used by `integrity_check.php` and the server info page.
+  </Card>
+
+  <Card title="SecurityChecker.php" icon="shield">
+    Performs security validation on incoming requests, guarding against common misuse patterns before the router processes them.
+  </Card>
+
+  <Card title="SignIn/ + SignInV2/" icon="user-lock">
+    Authentication and session management. `SignInV2/SignIn` (the active implementation) handles cookie-based sign-in, session verification, and exposes `isSignedIn()`. The older `Signin/` directory is kept for compatibility.
+  </Card>
+
+  <Card title="SimpleFunnel.php" icon="arrow-right-arrow-left">
+    Implements the funnel behaviour used by `Router::funnel()`. Proxies the current request URI directly to `www.youtube.com` and streams the response back to the client unchanged.
+  </Card>
+
+  <Card title="Spf/" icon="bolt-lightning">
+    Support for YouTube's Structured Page Fragments (SPF) protocol, which enables fast client-side navigation by returning JSON fragments instead of full HTML pages.
+  </Card>
+
+  <Card title="TemplateManager.php" icon="code">
+    Bootstraps Twig, registers the template directory, and exposes `addGlobal()` (called during setup tasks) plus the render methods used by controllers to produce final HTML output.
+  </Card>
+
+  <Card title="TemplateUtilsDelegate/" icon="puzzle-piece">
+    The `RehikeUtilsDelegate` class, registered as the `rehike` Twig global. Exposes PHP-side utility functions — formatting helpers, URL builders, and similar — to all Twig templates.
+  </Card>
+
+  <Card title="UserPrefs/" icon="circle-user">
+    Reads and writes user preference cookies (`PREF`), exposing typed accessors for client-side settings such as autoplay state and quality preferences.
+  </Card>
+
+  <Card title="Util/" icon="toolbox">
+    General-purpose utilities that don't belong to a single feature area: `Base64Url` encoding, `Nameserver` DNS lookup helpers, `ExperimentFlagManager`, and more.
+  </Card>
+
+  <Card title="Validation/" icon="check-double">
+    Input validation helpers used by config and request processing code to verify that values meet expected types and constraints.
+  </Card>
+
+  <Card title="Version/" icon="tag">
+    Version info and Git state reading. `VersionInfo` and `DotVersion` read the `.version` JSON file; `DotGit` and `RemoteGit` query the local Git repository for the current commit hash and branch. Used by the `/rehike/version` page and the update checker.
+  </Card>
+
+  <Card title="ViewModelParser.php" icon="table-columns">
+    Parses YouTube's ViewModel-style response objects (introduced in newer InnerTube responses) into Rehike's internal model format for template consumption.
+  </Card>
+
+  <Card title="YtApp.php" icon="star">
+    The global application state object (the `$yt` singleton). An `stdClass` subclass that holds the masthead, footer, appbar, page content, player config, i18n messages, locale, visitor data, and SPF state. Every controller populates this object; every template reads from it.
+  </Card>
+</CardGroup>

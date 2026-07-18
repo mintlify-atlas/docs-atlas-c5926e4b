@@ -1,0 +1,104 @@
+{
+  "projectType": "saas",
+  "projectName": "Rehike",
+  "projectDescription": "A self-hosted PHP server that proxies YouTube requests and renders them using the classic Hitchhiker frontend layout from 2013–2020.",
+  "theme": "palm",
+  "primaryColor": "#5c64f4",
+  "lightColor": "#acb4fc",
+  "darkColor": "#ffffff",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "configuration"
+            ]
+          },
+          {
+            "group": "How Rehike Works",
+            "pages": [
+              "architecture/overview",
+              "architecture/pages-and-routing",
+              "architecture/controllers-models-views",
+              "architecture/innertube"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/guide",
+              "contributing/code-standards",
+              "contributing/i18n"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer Reference",
+        "groups": [
+          {
+            "group": "Core APIs",
+            "pages": [
+              "reference/config-api",
+              "reference/network-api",
+              "reference/async-promises"
+            ]
+          },
+          {
+            "group": "Templating",
+            "pages": [
+              "reference/twig-templates",
+              "reference/spf"
+            ]
+          },
+          {
+            "group": "Codebase Reference",
+            "pages": [
+              "reference/directory-structure",
+              "reference/modules",
+              "reference/router"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Restores the classic YouTube Hitchhiker layout (2013–2020) as a server-side proxy",
+    "PHP-based server application — browser and extension independent",
+    "InnerTube API integration for YouTube data fetching",
+    "Twig-based HTML templating engine with SPF (Structured Page Fragments) support",
+    "Custom async/Promise engine for single-threaded asynchronous PHP execution",
+    "Comprehensive configuration system with appearance, experiments, and advanced options",
+    "Internationalization (i18n) support for multiple languages",
+    "Return YouTube Dislike API integration",
+    "MVC architecture with controllers, models, and Twig views",
+    "Built-in debugger and profiler tools"
+  ],
+  "publicApiSurface": [
+    "Config::getConfigProp(string $path)",
+    "Network::innertubeRequest(string $action, array $body, string $clientName, string $clientVersion)",
+    "Network::urlRequest(string $url, array $opts)",
+    "Network::dataApiRequest(string $action, array $params, bool $post)",
+    "Promise->then(callable $cb)",
+    "Promise->catch(callable $cb)",
+    "async(callable $generator): Promise",
+    "EventLoop::run()",
+    "Router::get(array $routes)",
+    "Router::post(array $routes)",
+    "Router::funnel(array $paths)",
+    "Router::redirect(array $rules)",
+    "ConfigDefinitions::getConfigDefinitions(): array",
+    "yt.spf (Twig global)",
+    "rehike.config (Twig global)",
+    "/rehike/config (configuration UI endpoint)",
+    "/rehike/version (version info endpoint)",
+    "/rehike/server_info (server info endpoint)",
+    "/rehike/extensions (extensions endpoint)"
+  ]
+}

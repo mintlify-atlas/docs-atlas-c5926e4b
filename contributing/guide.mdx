@@ -1,0 +1,100 @@
+---
+title: "How to Contribute to Rehike"
+sidebarTitle: "Contribution Guide"
+description: "Learn how to contribute to Rehike — from reporting bugs and translating strings to writing code and submitting pull requests on GitHub."
+---
+
+Rehike is a community-driven project that restores the classic YouTube Hitchhiker layout, and it depends on contributors of every skill level. Whether you want to fix a long-standing bug, add a translation for your language, or simply flag something that looks wrong, your help is genuinely valued. The team won't sharply reject imperfect contributions — they'll work with you to get things right.
+
+## What can I help with?
+
+As Rehike grows it becomes harder for a single person to maintain everything. Below are the main ways you can get involved, regardless of your technical background.
+
+<Accordion title="What if I don't know how to code?">
+That's completely fine. Non-code contributions are just as important as code changes:
+
+- **Bug reports** — if you notice something broken, open an issue on the GitHub issues tab. Clear reproduction steps and screenshots are always appreciated.
+- **Feature suggestions** — have an idea for something Rehike should do? Post it as an issue and the developers will consider it.
+- **Translations** — if you speak multiple languages you can translate Rehike's interface strings so more people can use it comfortably. See the [Translations guide](/contributing/i18n) for full instructions.
+</Accordion>
+
+## Code contributions
+
+If you want to contribute code, here are the best places to start:
+
+<CardGroup cols={3}>
+  <Card title="Hunt TODO/BUG comments" icon="magnifying-glass">
+    Search the codebase for `TODO` and `BUG` markers. These are tasks intentionally left for contributors and often go untouched for months.
+  </Card>
+  <Card title="Work through issues" icon="circle-dot">
+    The [GitHub issues page](https://github.com/Rehike/Rehike/issues) lists confirmed bugs and community requests. Pick one that matches your skills and get started.
+  </Card>
+  <Card title="Add documentation" icon="book">
+    If you find code that is difficult to understand, adding clarifying comments is a genuinely valuable contribution.
+  </Card>
+</CardGroup>
+
+### TODO and BUG comment format
+
+When you find something that needs attention, or want to leave a note for a future contributor, use the following comment format so automated searches can pick it up:
+
+```php
+// TODO(author): Example of a TODO notice.
+
+// BUG(author): Example of a BUG notice.
+```
+
+<Note>
+  Use `BUG` rather than `FIXME`. The codebase is searched specifically for the `BUG` marker, so `FIXME` comments may be overlooked.
+</Note>
+
+## Fork-and-PR workflow
+
+<Steps>
+  <Step title="Fork the repository">
+    Visit the [Rehike repository](https://github.com/Rehike/Rehike) on GitHub and click **Fork** to create your own copy.
+  </Step>
+  <Step title="Clone your fork">
+    ```bash
+    git clone https://github.com/<your-username>/Rehike.git
+    cd Rehike
+    ```
+  </Step>
+  <Step title="Install the git hook">
+    Copy the pre-push hook from the project's `.git-hooks` folder into your local `.git/hooks` directory. This hook automatically increments the version number recorded in the `.version` file every time you push:
+
+    ```bash
+    cp .git-hooks/pre-push .git/hooks/pre-push
+    chmod +x .git/hooks/pre-push
+    ```
+
+    You do not need to edit `.version` by hand — the hook handles it for you.
+  </Step>
+  <Step title="Create a branch">
+    ```bash
+    git checkout -b my-feature-or-fix
+    ```
+  </Step>
+  <Step title="Make your changes">
+    Write your code, following the [Code Standards](/contributing/code-standards). Add or update documentation comments where the code may be hard to understand.
+  </Step>
+  <Step title="Commit and push">
+    ```bash
+    git add .
+    git commit -m "Short description of what changed"
+    git push origin my-feature-or-fix
+    ```
+    The pre-push hook will automatically update `.version` before the push completes.
+  </Step>
+  <Step title="Open a pull request">
+    Go to your fork on GitHub and click **Compare & pull request**. Describe what you changed and why. The maintainers will review it and suggest any adjustments needed.
+  </Step>
+</Steps>
+
+## Version file
+
+The `.version` file at the root of the project tracks the current Rehike version number. You don't need to update this manually — the `.git-hooks/pre-push` script increments it automatically every time you push commits. Just make sure you have copied the hook as described in step 3 above.
+
+<Tip>
+  Not sure where a particular file lives in the project? The [Where Things Are](/contributing/guide) guide provides a full map of the directory layout and explains what each folder is responsible for.
+</Tip>

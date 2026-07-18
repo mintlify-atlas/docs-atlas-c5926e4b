@@ -1,0 +1,178 @@
+---
+title: "Rehike Code Style and Architecture Standards"
+sidebarTitle: "Code Standards"
+description: "Rehike's coding conventions: multi-paradigm PHP, brace placement, naming conventions, separation of concerns, and the controller–model–view world boundaries."
+---
+
+Rehike has a set of coding standards designed to keep the codebase clean, readable, maintainable, and easy to navigate. These aren't rigidly enforced rules so much as shared conventions that everyone who works on the project agrees to follow. Understanding them before you write your first line of code will make the review process smoother for everyone.
+
+## Multi-paradigm PHP
+
+Rehike does not enforce a purely procedural or purely object-oriented style — both paradigms work well in different situations, and the project uses them in tandem.
+
+There is one important caveat for procedural code: **code that operates without creating object instances must still be wrapped inside a class.** This is a PHP autoloader limitation; the autoloader cannot load non-class structures. As a result, many Rehike classes consist entirely of `static` functions and are never instantiated.
+
+## Brace placement
+
+The rule for brace placement depends on whether the construct is a *declaration* or an *expression*.
+
+- **Declarations** (class definitions, method definitions, `if`, `while`, `for`) are **not** part of an expression, so the opening brace goes on a **new line**.
+- **Expressions** (anything inside an assignment `=`, anonymous functions, `match`) place the opening brace **inline**, on the same line as the construct.
+
+```php
+// This is a class declaration. It is not part of an expression, so the
+// brace goes on a new line.
+class ClassDefinition
+{
+    // Likewise, this class method declaration is not an expression, so
+    // brace on new line.
+    public function methodDefinition(): void
+    {
+        // This if expression is also not an expression, so new line.
+        if (expression == true)
+        {
+            // This object array cast is part of an assignment expression,
+            // so the block opening token goes on the same line.
+            $obj = (object)[
+                "key" => "value"
+            ];
+
+            // This is a function expression. In PHP, these actually work
+            // quite a bit different from regular functions, so there is
+            // somewhat of a significance to distinguish them in syntax.
+            $cb = function() use ($obj) {
+                // This is a match expression. This language feature is only
+                // implemented as an expression, so sometimes we break the
+                // rule. But, for the sake of demonstration, the brace is
+                // inlined here too.
+                return match ($obj->key) {
+                    "value" => true,
+                    default => false
+                };
+            };
+        }
+    }
+}
+```
+
+## Spacing around code blocks
+
+Surround code blocks — function declarations, `if`, `while`, `for`, and so on — with blank lines, **except** at the very top or bottom of a scope. Comments that describe a specific block should immediately precede it with no blank line between the comment and the block.
+
+```php
+/**
+ * Comment describing the functionality of this method.
+ */
+public function exampleMethod(): string
+{
+    if ($this->whatever)
+    {
+        return "hi!";
+    }
+
+    $a = 0;
+
+    // Increment $a until it is 100.
+    while ($a < 100)
+    {
+        $a++;
+    }
+
+    if ($a == 100)
+    {
+        // Return "100".
+        return (string)$a;
+    }
+    else
+    {
+        // Return "wtf!!" if this somehow happens.
+        return "wtf!!";
+    }
+}
+```
+
+<Note>
+  The preferred style for non-chained blocks is to place the comment **before** the block (outside the braces). For chained constructs like `if`/`else`, placing the comment **at the top of the block body** is preferred.
+</Note>
+
+## Naming conventions
+
+| Construct | Convention | Examples |
+|---|---|---|
+| Classes, enums, and user-defined types | `PascalCase` | `LanguageApi`, `RehikeLocale` |
+| Functions, methods, and variables | `camelCase` | `getLanguageId()`, `$preferredLanguageIds` |
+| Constants and enum cases | `CONSTANT_CASE` | `VERSION`, `CACHE_FOLDER` |
+
+## Comment style
+
+- Use `//` for single-line comments. Do **not** use `#`.
+- Use `BUG` to mark code that needs to be fixed. The repository tooling searches for `BUG` specifically; `FIXME` is less likely to be noticed and should be avoided.
+- Use `TODO(author):` to leave work-in-progress notes.
+
+```php
+// TODO(author): Example of a TODO notice.
+
+// BUG(author): Example of a BUG notice.
+```
+
+## Line length
+
+Try to keep lines within **80–100 characters**. This isn't a hard limit, but staying within this range keeps diffs readable and avoids horizontal scrolling in side-by-side views.
+
+## `else if` vs `elseif`
+
+Use `else if` (two words), **not** `elseif`, in standard PHP code. The only exception is in the alternate PHP template syntax used for HTML templates (colon-delimited blocks), where `elseif` is required by PHP itself.
+
+## Separation of worlds
+
+This is one of the most important architectural principles in Rehike. Each layer of the application has a distinct responsibility, and mixing those responsibilities creates maintenance problems down the line.
+
+<CardGroup cols={2}>
+  <Card title="Modules" icon="puzzle-piece">
+    Live under `modules/`. Implement the **global backend** of Rehike — anything that is not specific to a single page. Examples include the i18n framework, caching, and configuration.
+  </Card>
+  <Card title="Controllers" icon="sliders">
+    Live under `controllers/`. **Coordinate the general behaviour** of a specific page — deciding what data to fetch and how to assemble it.
+  </Card>
+  <Card title="Models" icon="database">
+    Live under `models/`. **Restructure data** from InnerTube responses (or other sources) into a format the template engine can consume cleanly.
+  </Card>
+  <Card title="Templates" icon="code">
+    Live under `template/`. Written in Twig. Their only job is to **convert a model into HTML**. Business logic does not belong here.
+  </Card>
+</CardGroup>
+
+### Why this matters: a before/after example
+
+The CONTRIBUTING.md guide is explicit: data should seldom be modified inside HTML templates. Here is the principle in practice.
+
+**Wrong — business logic leaking into a template:**
+
+```twig
+{# Don't do this — deciding what to display belongs in the model, not here #}
+{% if item.viewCount > 1000000 %}
+    {{ (item.viewCount / 1000000)|round(1) }}M views
+{% elseif item.viewCount > 1000 %}
+    {{ (item.viewCount / 1000)|round(1) }}K views
+{% else %}
+    {{ item.viewCount }} views
+{% endif %}
+```
+
+**Right — data formatted in the model, template just renders:**
+
+```php
+// In the model (PHP):
+$item->viewCountText = i18n::formatNumber($item->viewCount);
+```
+
+```twig
+{# In the template (Twig): #}
+{{ item.viewCountText }} views
+```
+
+Keeping templates dumb makes both the PHP and the Twig easier to read, test, and change independently.
+
+<Tip>
+  The `models/` directory also contains InnerTube model converters. These transform YouTube's raw API response objects into structured PHP objects that match what the templates expect — another example of the separation principle in action.
+</Tip>

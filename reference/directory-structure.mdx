@@ -1,0 +1,58 @@
+---
+title: "Rehike Project Directory Structure Explained"
+sidebarTitle: "Directory Structure"
+description: "A complete map of every directory and key file in the Rehike codebase — from controllers and models to templates, modules, and generated code."
+---
+
+The Rehike codebase is well-organised, so once you know the layout you'll find your way around quickly. This page demystifies every top-level directory and key root file so you always know where to look — whether you're adding a new page controller, tweaking a template, or exploring the module library.
+
+## Auxiliary directories
+
+These directories are not part of the Rehike source code itself, but serve development and runtime purposes.
+
+| Path | Purpose |
+|---|---|
+| `.git-hooks/` | Development Git scripts. If you are contributing to Rehike, copy the `pre-push` hook into `.git/hooks/` to enable automatic version bumping before each push. |
+| `.github/` | GitHub-specific files: issue templates and images used in the README. |
+| `cache/` | Created automatically on first execution. Stores generated cache files for the running session (e.g. player cache). Do not check this directory into version control. |
+| `config.json` | Created automatically on first execution. Stores the user's current Rehike configuration in JSON format. |
+
+## Source code directories
+
+These are the directories that make up the Rehike application itself.
+
+<Note>
+  Do **not** manually edit `vendor/` or `modules/generated/`. `vendor/` is managed entirely by Composer and will be overwritten on the next `composer install`. `modules/generated/` contains protobuf-compiled PHP sources generated from `src/protos/` — edit the `.proto` source instead and regenerate.
+</Note>
+
+| Path | Purpose |
+|---|---|
+| `controllers/` | Insertion points (controllers) for each of Rehike's unique pages. Every routable URL maps to a controller file in this directory. |
+| `i18n/` | Translation files organised by locale. These supply the strings rendered into page templates. |
+| `includes/` | Low-level PHP source files that are not class-based. Examples include the autoloader, SPF redirect handler, and standalone helper functions. |
+| `models/` | Page data models and InnerTube response converters. Models are populated by controllers and then passed directly into the template engine for rendering. |
+| `modules/` | The general Rehike library — the heart of almost every operation the server performs. See the [Modules reference](/reference/modules) for a full breakdown. |
+| `modules/generated/` | Generated protobuf PHP source files compiled from `src/protos/`. **Do not edit directly.** |
+| `src/` | Non-PHP source files including JavaScript, CSS, protobuf definitions, and images. |
+| `static/` | Static assets served directly to the browser: images, compiled JavaScript files, icons, and similar. |
+| `template/` | Twig source files (`.twig`) for all HTML and JS page templates. |
+| `vendor/` | Composer-managed third-party dependencies. **Do not edit directly.** |
+
+## Key root files
+
+| File | Purpose |
+|---|---|
+| `.htaccess` | Apache server configuration. Contains a single rewrite directive that routes all incoming traffic through `index.php`. |
+| `index.php` | The PHP entry point. Bootstraps the autoloader, runs `integrity_check.php`, then hands off to the `Bootloader`. |
+| `integrity_check.php` | Performs pre-flight checks before the application starts — for example, verifying the running PHP version meets Rehike's requirements. |
+| `router.php` | The URL-to-controller mapping table. Calls `Router::funnel()`, `Router::redirect()`, `Router::get()`, and `Router::post()` to define all routes. See the [Router reference](/reference/router). |
+| `composer.json` | Composer dependency manifest. Declares all third-party PHP packages used by Rehike. |
+| `.version` | JSON file automatically updated by the `pre-push` Git hook. Contains the current Rehike build version and is read at runtime by the `Version` module. |
+
+## How the pieces connect
+
+When a request arrives, Apache's `.htaccess` forwards it to `index.php`. The entry point runs `integrity_check.php`, then starts the `Bootloader` (found in `modules/Rehike/Boot/`). The Bootloader initialises all subsystems through a series of tasks, then loads `router.php`, which dispatches the request to the appropriate controller in `controllers/`. The controller populates a model from `models/`, and the result is rendered through a Twig template from `template/` before being sent to the browser.
+
+<Tip>
+  Use the autoloader path-mapping rules in `includes/rehike_autoloader.php` as your guide when you need to trace a class name back to a file. The `Rehike\Model\*` namespace maps to `models/`, `Rehike\Controller\*` maps to `controllers/`, and everything else under `Rehike\*` maps to `modules/`.
+</Tip>

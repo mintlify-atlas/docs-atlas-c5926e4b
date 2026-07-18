@@ -1,0 +1,242 @@
+---
+title: "Adding Translations to Rehike (Internationalisation)"
+sidebarTitle: "Translations"
+description: "How to add or update Rehike's interface translations. Covers the i18n file format, supported locales, and how to register a new language."
+---
+
+Rehike ships with interface translations for a growing list of languages, and adding a new one requires no PHP knowledge — just a text editor and familiarity with the target language. Translators are among the most appreciated contributors to the project because they make the classic YouTube experience accessible to audiences who would otherwise be left with an English-only interface.
+
+<Note>
+  You don't need to be a programmer to contribute a translation. If you can copy files and edit text, you have everything you need. The maintainers will handle any integration steps that require code changes.
+</Note>
+
+## Supported locales
+
+The following locales ship with Rehike. Each one lives in its own subdirectory under `i18n/`:
+
+| Directory | Language | InnerTube ID |
+|---|---|---|
+| `en-US` | English | `en` |
+| `en-GB` | English (United Kingdom) | `en-GB` |
+| `es-LA` | Español (Latinoamerica) | `es-LA` |
+| `ja` | 日本語 | `ja` |
+| `ko` | 한국어 | `ko` |
+| `nl-NL` | Nederlands | `nl-NL` |
+| `pl` | Polski | `pl` |
+| `pt` | Português | `pt` |
+| `ru` | Русский | `ru` |
+| `uk` | Українська | `uk` |
+
+<Note>
+  The `i18n/` directory also contains a `see_zh.md` file with a note about a Chinese-language archive that may be useful for anyone working on a Chinese translation.
+</Note>
+
+## The `.i18n` file format
+
+Translation strings are stored in files with the `.i18n` extension. The format is a custom YAML-like key–value syntax. Lines beginning with `#` are comments. Multi-line strings use the YAML block scalar `>` operator. Here is an excerpt from `en-US/global.i18n`:
+
+```yaml
+# Global strings
+# These include both common things and most JS messages.
+# These are exported to the templates at `yt.msgs`.
+
+# Common aria (accessibility) labels
+loadingIconLabel: "Loading icon"
+actionMenuLabel: "Action menu."
+
+# Spinner (loading) text:
+loading: "Loading..."
+working: "Working..."
+
+# Generic close button text
+close: "Close"
+
+showMore: "Show more"
+showLess: "Show less"
+
+# General "load more" text
+loadMore: "Load more"
+
+# Duration accessibility strings (shown on watch)
+durationA11y: " - Duration: %s."
+
+# Left for some pages which don't reasonably support rich formatting of the
+# byline (i.e. attribution)
+usernamePrepend: "by "
+verified: "Verified"
+
+bylineFormat: "by %s" # "by Username"
+
+# Video thumbnail watch later button strings:
+addToWatchLater: "Watch later"
+addedToWatchLater: "Added"
+addToWatchLaterError: "Error"
+```
+
+And a shorter example from `en-US/appbar.i18n`, which shows how namespace files are scoped:
+
+```yaml
+# Appbar definitions
+
+tabHome: "Home"
+tabTrending: "Trending"
+tabSubscriptions: "Subscriptions"
+```
+
+### The `_rhcfg.json` file
+
+Every locale directory must contain a `_rhcfg.json` metadata file. It tells Rehike the display name of the language and which InnerTube language code to use when making API requests:
+
+```json
+{
+    "rehikeLanguageName": "English",
+    "innertubeLanguageId": "en"
+}
+```
+
+For the Russian locale this looks like:
+
+```json
+{
+    "rehikeLanguageName": "Русский",
+    "innertubeLanguageId": "ru"
+}
+```
+
+### The `_culture.i18n` file
+
+Each locale directory also contains `_culture.i18n`, which describes formatting conventions for that language — things like the thousands separator, decimal separator, date format order, and names of months and days. This is separate from the UI strings so that formatting behaviour can be changed independently. An excerpt from `en-US/_culture.i18n`:
+
+```yaml
+languageName: "English"
+expandedLanguageName: "English (United States)"
+writingDirection: ltr
+
+thousandsSeparator: ","
+decimalSeparator: "."
+
+standardDateOrder: mdy
+
+firstDayOfWeek: 1 # Sunday
+
+am: "AM"
+pm: "PM"
+
+# https://www.php.net/manual/en/datetime.format.php
+expandedDateWithTime: "l, F j, Y g:i A" # Tuesday, October 17, 2023 12:50 AM
+expandedDate: "l, F j, Y"               # Tuesday, October 17, 2023
+date: "F j, Y"                           # October 17 2023
+shortDate: "m/d/Y"                       # 10/17/2023
+time: "g:i A"                            # 12:50 AM
+```
+
+## How the i18n system works
+
+Rehike uses a custom PHP framework (`Rehike\i18n`) to load and serve translations. The boot sequence (in `BootServices.php`) does the following:
+
+1. Reads the user's preferred language from the `hidden.language` config property or the `hl` cookie.
+2. Validates the language code against a list of known valid host-language codes.
+3. Falls back to `en-US` if the requested language is not valid or cannot be loaded.
+4. Configures the framework to use the `i18n/` directory as the root, with `.i18n` as the default file extension and `_culture.i18n` as the culture descriptor filename.
+
+The `RehikeLocale` class (`modules/Rehike/i18n/RehikeLocale.php`) provides helper methods for controllers and models to look up the current language ID and the corresponding InnerTube language and geolocation codes:
+
+```php
+// Get the active Rehike language ID (e.g. "ru")
+$langId = RehikeLocale::getLanguageId();
+
+// Get the InnerTube language code to use in API requests
+$itLang = RehikeLocale::getInnertubeLanguageId();
+
+// Get the current country/geolocation code
+$country = RehikeLocale::getCountryId();
+```
+
+## Accessing translations in Twig templates
+
+All strings from `global.i18n` (and a few other sources) are exposed to Twig templates through the `yt.msgs` global object. Access a string using dot notation:
+
+```twig
+{# Render the "Close" button label #}
+<span class="yt-uix-button-content">{{ yt.msgs.close }}</span>
+
+{# Render the spinner with the "Loading..." text #}
+{{ spinner(yt.msgs.loading) }}
+
+{# Use the "Verified" label as a tooltip #}
+<span aria-label="{{ yt.msgs.verified }}">...</span>
+```
+
+String keys map directly to the keys defined in the `.i18n` files. For example, the `loading` key in `global.i18n` becomes `yt.msgs.loading` in a template.
+
+## Formatting numbers
+
+The i18n framework provides a `formatNumber()` method that applies the locale's thousands separator and decimal separator automatically:
+
+```php
+// In a model (PHP):
+use Rehike\i18n\i18n;
+
+$formattedCount = i18n::formatNumber($rawViewCount);
+```
+
+This internally calls PHP's `number_format()` with the `thousandsSeparator` and `decimalSeparator` values from the locale's `_culture.i18n` file, so the result is automatically correct for every supported language.
+
+## Adding a new locale
+
+<Steps>
+  <Step title="Create the locale directory">
+    Create a new folder inside `i18n/` named with your locale code. Use IETF language tag conventions — for example, `fr-FR` for French (France) or `de` for German.
+
+    ```bash
+    mkdir i18n/fr-FR
+    ```
+  </Step>
+  <Step title="Copy the en-US files as a base">
+    Copy every file from `i18n/en-US/` into your new directory. The English files serve as the complete reference set:
+
+    ```bash
+    cp -r i18n/en-US/. i18n/fr-FR/
+    ```
+  </Step>
+  <Step title="Update _rhcfg.json">
+    Edit `i18n/fr-FR/_rhcfg.json` to set the correct display name and InnerTube language code for your locale:
+
+    ```json
+    {
+        "rehikeLanguageName": "Français",
+        "innertubeLanguageId": "fr"
+    }
+    ```
+
+    The `rehikeLanguageName` value is what users will see in the language picker. Write it in the target language, not English.
+  </Step>
+  <Step title="Update _culture.i18n">
+    Edit `i18n/fr-FR/_culture.i18n` to reflect the formatting conventions of your locale — separator characters, date format order, day/month names, and so on. Keep the key names intact; only change the values.
+  </Step>
+  <Step title="Translate the string files">
+    Open each `.i18n` file and translate the **values** (the text in quotes on the right side of each `key: "value"` pair). **Do not change the keys.** Comments beginning with `#` can be left in English or removed — they are not displayed to users.
+
+    For example, translating `appbar.i18n` to French:
+
+    ```yaml
+    # Appbar definitions
+
+    tabHome: "Accueil"
+    tabTrending: "Tendances"
+    tabSubscriptions: "Abonnements"
+    ```
+
+    Strings containing `%s` are format placeholders (filled in by PHP's `sprintf`). Keep them in the translated string in the correct position for your language.
+  </Step>
+  <Step title="Test your translation">
+    Run a local Rehike instance and switch the language to your new locale via the language picker (or by setting the `hl` cookie). Verify that all the pages you have translated display correctly. Pages that have not yet been translated will fall back to `en-US`.
+  </Step>
+  <Step title="Open a pull request">
+    Commit the new locale directory and open a pull request on GitHub. The maintainers will review the translations and handle any remaining registration steps.
+  </Step>
+</Steps>
+
+<Tip>
+  If you are translating for a language that has a regional variant already in the project (e.g. adding `en-AU` when `en-GB` already exists), you only need to include the files that actually differ from the base variant. The framework will fall back to the default language for any strings that are missing from a locale directory.
+</Tip>

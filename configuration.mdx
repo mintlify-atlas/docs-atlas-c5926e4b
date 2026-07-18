@@ -1,0 +1,233 @@
+---
+title: "Configure Rehike: Appearance, Experiments, and Advanced Options"
+sidebarTitle: "Configuration"
+description: "Learn how to configure Rehike's appearance, experimental features, and advanced settings. All options are available through the built-in configuration UI."
+---
+
+Rehike ships with sensible defaults, but almost every aspect of its behaviour can be adjusted through its built-in configuration interface. Settings are stored in a `config.json` file at the project root that Rehike creates automatically on first run. You never need to edit this file by hand — the configuration UI writes it for you — but understanding the available properties is useful for debugging, automation, or contributing new features.
+
+## Accessing the Configuration UI
+
+Once Rehike is installed and running, navigate to:
+
+```
+/rehike/config
+```
+
+For example, if your instance is at `http://rehike.localhost`, the configuration page is at `http://rehike.localhost/rehike/config`.
+
+<Note>
+  `config.json` is created at the project root the first time Rehike loads, populated with all default values. If you ever delete it, Rehike will recreate it on next startup.
+</Note>
+
+## config.json Structure
+
+All settings are stored as a nested JSON object keyed by group name. Here is an example showing a selection of properties:
+
+```json
+{
+    "appearance": {
+        "smallPlayer": true,
+        "branding": "BRANDING_2017_RINGO",
+        "useRyd": true,
+        "enableAdblock": true,
+        "movingThumbnails": false
+    },
+    "experiments": {
+        "useSignInV2": false,
+        "asyncAttestationRequest": true,
+        "temp20240827_playerMode": "USE_WEB_V2"
+    },
+    "advanced": {
+        "dnsAddress": "1.1.1.1",
+        "disableSslVerification": false,
+        "enableDebugger": false,
+        "developer": {
+            "ignoreUnresolvedPromises": false
+        }
+    }
+}
+```
+
+Configuration properties are accessed in PHP via `Config::getConfigProp("group.property")` and in Twig templates via the global `rehike.config.group.property` variable.
+
+---
+
+## Appearance
+
+These settings control the visual presentation of the Hitchhiker layout.
+
+<ParamField path="appearance.smallPlayer" type="boolean" default="true">
+  Render the video player in the classic smaller size rather than a wide/theatre default. Mirrors the proportions YouTube used during the Hitchhiker era.
+</ParamField>
+
+<ParamField path="appearance.branding" type="enum" default="BRANDING_2024_RINGO2">
+  Controls which YouTube logo variant is displayed in the header.
+
+  | Value | Description |
+  |---|---|
+  | `BRANDING_2024_RINGO2` | The updated Ringo2 logo used in Rehike's current design |
+  | `BRANDING_2017_RINGO` | The flat 2017-era YouTube logo |
+  | `BRANDING_2015` | The classic 2015 YouTube logo |
+</ParamField>
+
+<ParamField path="appearance.uploadButtonType" type="enum" default="MENU">
+  Controls how the upload / create button appears in the header.
+
+  | Value | Description |
+  |---|---|
+  | `MENU` | A dropdown menu (default) |
+  | `ICON` | An icon-only button |
+  | `BUTTON` | A full text button |
+</ParamField>
+
+<ParamField path="appearance.showNewInfoOnChannelAboutPage" type="boolean" default="true">
+  Show additional channel information fields on the About page that were introduced after the original Hitchhiker era but are still useful (such as joined date and total view counts).
+</ParamField>
+
+<ParamField path="appearance.largeSearchResults" type="boolean" default="true">
+  Display search result thumbnails at the larger size used in later Hitchhiker iterations, rather than the smaller compact size from the earliest era.
+</ParamField>
+
+<ParamField path="appearance.swapSearchViewsAndDate" type="boolean" default="false">
+  Swap the order of the view count and upload date metadata fields displayed beneath each search result.
+</ParamField>
+
+<ParamField path="appearance.showOldUploadedOnText" type="boolean" default="false">
+  Show the text "Uploaded on" before a video's publication date (as YouTube did before switching to "Published on" and eventually just the date).
+</ParamField>
+
+<ParamField path="appearance.useLegacyRoboto" type="boolean" default="false">
+  Use the legacy Roboto font variant rather than the current one. This more closely matches the typography of the earliest Hitchhiker pages.
+</ParamField>
+
+<ParamField path="appearance.showVersionInFooter" type="boolean" default="true">
+  Display the Rehike version string in the page footer.
+</ParamField>
+
+<ParamField path="appearance.usernamePrepends" type="boolean" default="false">
+  Prepend a localised "by" label before author usernames where they appear on the page (for example, beneath video cards).
+</ParamField>
+
+<ParamField path="appearance.useRyd" type="boolean" default="true">
+  Enable integration with the [Return YouTube Dislike API](https://www.returnyoutubedislike.com/) to display restored dislike counts on video pages. Disable this if you prefer not to make requests to the RYD service.
+</ParamField>
+
+<ParamField path="appearance.enableSponsorblockFixes" type="boolean" default="true">
+  Apply CSS and layout adjustments that ensure the SponsorBlock browser extension renders correctly alongside Rehike's classic player layout.
+</ParamField>
+
+<ParamField path="appearance.noViewsText" type="boolean" default="false">
+  Replace the full "X views" text on the watch page with a plain formatted number, omitting the "views" label. Matches how some Hitchhiker-era pages displayed view counts.
+</ParamField>
+
+<ParamField path="appearance.movingThumbnails" type="boolean" default="true">
+  Enable animated thumbnail previews that play a short clip when the cursor hovers over a video card.
+</ParamField>
+
+<ParamField path="appearance.cssFixes" type="boolean" default="true">
+  Apply a set of minor CSS corrections that improve rendering consistency across different browsers and screen sizes. Disabling this may cause subtle visual glitches.
+</ParamField>
+
+<ParamField path="appearance.watchSidebarDates" type="boolean" default="false">
+  Show upload dates on video cards in the watch page sidebar (the "Up next" and related videos panel).
+</ParamField>
+
+<ParamField path="appearance.watchSidebarVerification" type="boolean" default="false">
+  Show channel verification badges on video cards in the watch page sidebar.
+</ParamField>
+
+<ParamField path="appearance.oldBestOfYouTubeIcons" type="boolean" default="false">
+  Use the older icon set for the "Best of YouTube" browse categories rather than the current icon set.
+</ParamField>
+
+<ParamField path="appearance.enableAdblock" type="boolean" default="true">
+  Block advertisements from appearing on rendered pages. Disable this if you want to allow ads through, or if ad blocking causes issues with specific page types.
+</ParamField>
+
+---
+
+## Experiments
+
+Experimental settings control features that are still under active development or testing. Defaults are chosen conservatively — most experimental flags are off unless the feature is considered stable enough to ship enabled.
+
+<Warning>
+  Experimental options may change behaviour significantly, break certain pages, or be removed in future releases without notice. Use them with that in mind.
+</Warning>
+
+<ParamField path="experiments.useSignInV2" type="boolean" default="false">
+  Enable the second-generation sign-in flow. This is an experimental replacement for the default authentication pathway.
+</ParamField>
+
+<ParamField path="experiments.asyncAttestationRequest" type="boolean" default="true">
+  Perform the bot-attestation request asynchronously, rather than blocking page rendering until it completes. Enabled by default as it generally improves perceived load time.
+</ParamField>
+
+<ParamField path="experiments.disableSignInOnHome" type="boolean" default="false">
+  Suppress the sign-in prompt that can appear on the home page for signed-out users.
+</ParamField>
+
+<ParamField path="experiments.tickInjectionForScheduling" type="boolean" default="false">
+  Use tick injection for internal task scheduling. When this property changes at runtime, Rehike automatically clears the PHP OPcache (`opcache_reset()`) to ensure scripts are recompiled with the new behaviour.
+</ParamField>
+
+<ParamField path="experiments.temp20240827_playerMode" type="enum" default="USE_WEB_V2">
+  Controls which player request strategy Rehike uses to load the video player. This setting was introduced on 2024-08-27 and is still under evaluation.
+
+  | Value | Description |
+  |---|---|
+  | `USE_WEB_V2` | Use the standard InnerTube WEB v2 player request (default) |
+  | `USE_EMBEDDED_PLAYER_REQUEST` | Fetch the player using an embedded player request |
+  | `USE_EMBEDDED_PLAYER_DIRECTLY` | Load the embedded player iframe directly without a separate request |
+</ParamField>
+
+<ParamField path="experiments.alwaysUseContentPoToken" type="boolean" default="false">
+  Always include a content Proof of Origin Token in player requests, regardless of whether the current context normally requires one.
+</ParamField>
+
+---
+
+## Advanced
+
+Advanced settings affect network behaviour, developer tooling, and low-level runtime options. Most users should leave these at their defaults.
+
+<ParamField path="advanced.dnsAddress" type="string" default="1.1.1.1">
+  The DNS resolver address Rehike uses for outbound requests, via the BlueLibraries DNS library. Defaults to Cloudflare's public resolver. Change this if you need to route DNS through a specific server (for example, a local Pi-hole or your organisation's internal resolver).
+</ParamField>
+
+<ParamField path="advanced.disableSslVerification" type="boolean" default="false">
+  Disable SSL certificate verification for outbound HTTPS requests Rehike makes to YouTube's APIs.
+
+  <Warning>
+    Disabling SSL verification is a security risk. Only enable this in isolated development environments where you control all network traffic. Never disable it on a publicly accessible instance.
+  </Warning>
+</ParamField>
+
+<ParamField path="advanced.enableDebugger" type="boolean" default="false">
+  Enable Rehike's built-in page debugger, which surfaces internal rendering information for diagnosing issues. Intended for developers and contributors. Do not leave this enabled on shared or public instances.
+</ParamField>
+
+<ParamField path="advanced.developer.ignoreUnresolvedPromises" type="boolean" default="false">
+  Suppress errors caused by unresolved internal async promises during page rendering. Useful when developing new features that use Rehike's async pipeline without yet providing full resolution paths.
+</ParamField>
+
+---
+
+## Hidden Properties
+
+`config.json` also contains a `hidden` group with properties that Rehike manages internally:
+
+```json
+{
+    "hidden": {
+        "language": "en-US",
+        "securityIgnoreWindowsServerRunningAsSystem": false,
+        "disableRehike": false,
+        "enableProfiler": false
+    }
+}
+```
+
+<Note>
+  `hidden.*` properties are not exposed in the configuration UI and are not intended for direct user modification. They are managed by Rehike's internal systems. Editing them manually may cause unexpected behaviour.
+</Note>

@@ -1,20 +1,72 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Rehike: Restore the Classic YouTube Experience"
+sidebarTitle: "Home"
+description: "Rehike is a self-hosted PHP server that restores the classic YouTube Hitchhiker layout from 2013–2020, running entirely server-side without browser extensions."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Rehike is a custom web frontend server for YouTube that faithfully restores the classic **Hitchhiker** layout — the version of YouTube that existed from 2013 to 2020. It acts as a man-in-the-middle proxy, intercepting YouTube requests and rendering them with authentic archived templates powered by live data from YouTube's InnerTube API.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Installation" icon="server" href="/installation">
+    Set up Rehike on your local machine or server with Apache and PHP 8.0+
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Customise appearance, enable experiments, and tune advanced settings
+  </Card>
+  <Card title="How Rehike Works" icon="diagram-project" href="/architecture/overview">
+    Understand the proxy architecture and InnerTube API integration
+  </Card>
+  <Card title="Developer Reference" icon="code" href="/reference/config-api">
+    APIs for config, networking, async Promises, templating, and routing
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What is Rehike?
+
+Rehike is **not a browser extension** — it works above the browser, giving it far greater freedom and portability. Because the entire page is rendered server-side before it reaches the browser, the experience is indistinguishable from the real classic YouTube: no flickering, no uncanny-valley loading states.
+
+<CardGroup cols={3}>
+  <Card title="Server-side rendering" icon="php">
+    Full PHP application — no JavaScript hacks, no DOM manipulation
+  </Card>
+  <Card title="InnerTube powered" icon="youtube">
+    Live data from YouTube's private InnerTube API, rendered in classic templates
+  </Card>
+  <Card title="Fully configurable" icon="gear">
+    Appearance, experiments, and advanced options exposed through a built-in UI
+  </Card>
+</CardGroup>
+
+## Get Up and Running
+
+<Steps>
+  <Step title="Install prerequisites">
+    Ensure you have **PHP 8.0+**, **Composer**, and an **Apache** web server (with `mod_rewrite` enabled) available on your system.
+  </Step>
+  <Step title="Clone and install dependencies">
+    Clone the Rehike repository and run `composer install` to pull in Twig, Protocol Buffers, and the DNS library.
+  </Step>
+  <Step title="Configure Apache">
+    Point your Apache virtual host's document root at the Rehike directory. Rehike ships an `.htaccess` that routes all traffic through `index.php`.
+  </Step>
+  <Step title="Open your browser">
+    Navigate to your configured host in any browser. Rehike will proxy YouTube through the classic Hitchhiker layout automatically.
+  </Step>
+</Steps>
+
+<Note>
+  Rehike is in active development. If you encounter issues, please [open a GitHub issue](https://github.com/Rehike/Rehike/issues) so the team can track them.
+</Note>
+
+## Key Features
+
+- **Classic Hitchhiker layout** — pixel-accurate recreation of the 2013–2020 YouTube design
+- **SPF navigation** — single-page application feel using YouTube's original Structured Page Fragments library
+- **Return YouTube Dislike** — built-in integration to restore dislike counts
+- **Async PHP engine** — custom Promise/event-loop system for non-blocking InnerTube requests
+- **i18n support** — translations available for English, Japanese, Korean, Russian, Portuguese, Polish, Ukrainian, Spanish, and Dutch
+- **Built-in debugger** — optional profiler and request logger for development
+
+## License
+
+Rehike is licensed under the **Mozilla Public License 2.0**. All original code authored by The Rehike Maintainers is free to use, modify, and redistribute as long as you distribute the source and maintain the MPL 2.0 license.

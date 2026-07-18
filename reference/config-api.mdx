@@ -1,0 +1,215 @@
+---
+title: "Rehike Configuration API: Reading and Writing Settings"
+sidebarTitle: "Config API"
+description: "Use Config::getConfigProp() and rehike.config in Twig to read user settings in PHP and template code. Learn how to define new configuration properties."
+---
+
+Rehike stores all user-configurable settings in a `config.json` file at the root of the installation. Every property in that file is declared in `modules/Rehike/ConfigDefinitions.php`, which acts as the single source of truth for what options exist, what type they are, and what their defaults are. When Rehike is updated, any newly-declared properties are automatically written into `config.json` on the next page load, so users never need to touch the file by hand.
+
+## Reading config in PHP
+
+Import the `Config` class from the `Rehike\ConfigManager` namespace at the top of any PHP file that needs to inspect user settings:
+
+```php
+use Rehike\ConfigManager\Config;
+```
+
+Then call `Config::getConfigProp()` with a period-delimited path that mirrors the nested structure in `config.json`:
+
+```php
+if (Config::getConfigProp("appearance.noViewsText"))
+{
+    $number = (int)ExtractUtils::isolateViewCnt($this->viewCount);
+    if (is_int($number))
+    {
+        $this->viewCount = $i18n->formatNumber($number);
+    }
+}
+```
+
+If the path does not exist in the current config (for example, a property that has not yet been written to `config.json`), the method returns `null` rather than throwing.
+
+<ParamField path="path" type="string" required>
+  Period-delimited path to the configuration property, e.g. `"appearance.noViewsText"` or `"advanced.dnsAddress"`.
+</ParamField>
+
+<ResponseField name="return" type="mixed">
+  The current value of the property, or `null` if the path is not found.
+</ResponseField>
+
+### Full method signature
+
+```php
+public static function getConfigProp(string $path): mixed
+```
+
+## Reading config in Twig
+
+User configuration is automatically exposed to every Twig template through the global `rehike.config` variable. Access any property by appending its dot-separated path directly to that variable — no import or helper call is needed.
+
+```twig
+<span class="stat attribution">
+    {% if rehike.config.appearance.usernamePrepends %}
+        <span>{{ yt.msgs.usernamePrepend }}</span>
+    {% endif %}
+    <span>{{ rehike.getText(author) }}</span>
+</span>
+```
+
+The path structure in Twig mirrors the structure in `config.json` exactly, so `rehike.config.appearance.usernamePrepends` reads the same property as `Config::getConfigProp("appearance.usernamePrepends")` in PHP.
+
+## Adding a new config property
+
+Open `modules/Rehike/ConfigDefinitions.php` and add a new entry to the array returned by `getConfigDefinitions()`. Place it inside the appropriate top-level group (`appearance`, `experiments`, `advanced`, or `hidden`), or create a new group if necessary.
+
+```php
+use Rehike\ConfigManager\Properties\{
+    BoolProp,
+    EnumProp,
+    PropGroup,
+    DependentProp,
+    StringProp
+};
+```
+
+Once the entry is saved, Rehike will merge it into `config.json` automatically at runtime — no migration script is required for brand-new properties.
+
+<Note>
+  Properties added to `ConfigDefinitions.php` are exported into the user's `config.json` on the next page load. Renaming or removing a property does **not** automatically remove it from existing config files; use `migrateOldOptions()` inside `ConfigDefinitions.php` for that.
+</Note>
+
+### Property types
+
+| Type | Constructor | Description |
+|---|---|---|
+| `BoolProp` | `new BoolProp(bool $default)` | On/off toggle stored as a JSON boolean |
+| `EnumProp` | `new EnumProp(string $default, array $values)` | String value restricted to an explicit allowlist |
+| `StringProp` | `new StringProp(string $default)` | Arbitrary string value |
+| `DependentProp` | `new DependentProp(...)` | A property whose visibility or default depends on another property |
+| `PropGroup` | `new PropGroup(array $props)` | A named container that groups several properties together without adding a JSON nesting level |
+
+### BoolProp example
+
+The simplest kind of property is a boolean toggle. Here is a real example from `ConfigDefinitions.php` — the `smallPlayer` and `noViewsText` appearance options:
+
+```php
+"appearance" => [
+    "smallPlayer"  => new BoolProp(true),
+    "noViewsText"  => new BoolProp(false),
+    // ...
+],
+```
+
+`true` and `false` set the default value that is written into `config.json` if the property is not already present.
+
+### EnumProp example
+
+An `EnumProp` constrains the property to a specific list of string values. The first argument is the default, and the second is the full set of allowed values:
+
+```php
+"appearance" => [
+    "branding" => new EnumProp("BRANDING_2024_RINGO2", [
+        "BRANDING_2024_RINGO2",
+        "BRANDING_2017_RINGO",
+        "BRANDING_2015"
+    ]),
+    "uploadButtonType" => new EnumProp("MENU", [
+        "BUTTON",
+        "ICON",
+        "MENU"
+    ]),
+    // ...
+],
+```
+
+### StringProp example
+
+`StringProp` accepts any string value. It is used for free-form settings such as a custom DNS resolver address:
+
+```php
+"advanced" => [
+    "dnsAddress" => new StringProp("1.1.1.1"),
+    // ...
+],
+```
+
+### RegisterUpdateCb
+
+Any property can have an update callback registered on it. This callback is invoked whenever `Config::setConfigProp()` changes the property's value. For example, the `tickInjectionForScheduling` experiment clears the opcode cache when its value changes:
+
+```php
+"tickInjectionForScheduling" => (new BoolProp(false))->registerUpdateCb(function() {
+    if (function_exists("opcache_reset"))
+        opcache_reset();
+}),
+```
+
+## Writing config from PHP
+
+Setting a property at runtime is done with `Config::setConfigProp()`. Call `Config::dumpConfig()` afterwards to persist the change to disk:
+
+```php
+Config::setConfigProp("appearance.branding", "BRANDING_2015");
+Config::dumpConfig();
+```
+
+<Warning>
+  `setConfigProp` only modifies the in-memory config object. If you do not call `dumpConfig()`, the change will be lost when the PHP process ends.
+</Warning>
+
+## Full property definitions reference
+
+The table below lists every property currently defined in `ConfigDefinitions.php`, its type, and its default value.
+
+### `appearance` group
+
+| Property | Type | Default |
+|---|---|---|
+| `smallPlayer` | `BoolProp` | `true` |
+| `branding` | `EnumProp` | `"BRANDING_2024_RINGO2"` |
+| `uploadButtonType` | `EnumProp` | `"MENU"` |
+| `showNewInfoOnChannelAboutPage` | `BoolProp` | `true` |
+| `largeSearchResults` | `BoolProp` | `true` |
+| `swapSearchViewsAndDate` | `BoolProp` | `false` |
+| `showOldUploadedOnText` | `BoolProp` | `false` |
+| `useLegacyRoboto` | `BoolProp` | `false` |
+| `showVersionInFooter` | `BoolProp` | `true` |
+| `usernamePrepends` | `BoolProp` | `false` |
+| `useRyd` | `BoolProp` | `true` |
+| `enableSponsorblockFixes` | `BoolProp` | `true` |
+| `noViewsText` | `BoolProp` | `false` |
+| `movingThumbnails` | `BoolProp` | `true` |
+| `cssFixes` | `BoolProp` | `true` |
+| `watchSidebarDates` | `BoolProp` | `false` |
+| `watchSidebarVerification` | `BoolProp` | `false` |
+| `oldBestOfYouTubeIcons` | `BoolProp` | `false` |
+| `enableAdblock` | `BoolProp` | `true` |
+
+### `experiments` group
+
+| Property | Type | Default |
+|---|---|---|
+| `useSignInV2` | `BoolProp` | `false` |
+| `asyncAttestationRequest` | `BoolProp` | `true` |
+| `disableSignInOnHome` | `BoolProp` | `false` |
+| `tickInjectionForScheduling` | `BoolProp` | `false` |
+| `temp20240827_playerMode` | `EnumProp` | `"USE_WEB_V2"` |
+| `alwaysUseContentPoToken` | `BoolProp` | `false` |
+
+### `advanced` group
+
+| Property | Type | Default |
+|---|---|---|
+| `dnsAddress` | `StringProp` | `"1.1.1.1"` |
+| `disableSslVerification` | `BoolProp` | `false` |
+| `enableDebugger` | `BoolProp` | `false` |
+| `developer.ignoreUnresolvedPromises` | `BoolProp` | `false` |
+
+### `hidden` group
+
+| Property | Type | Default |
+|---|---|---|
+| `language` | `StringProp` | `"en-US"` |
+| `securityIgnoreWindowsServerRunningAsSystem` | `BoolProp` | `false` |
+| `disableRehike` | `BoolProp` | `false` |
+| `enableProfiler` | `BoolProp` | `false` |

@@ -1,0 +1,222 @@
+---
+title: "Twig Templates and the Hitchhiker Rendering System"
+sidebarTitle: "Twig Templates"
+description: "How Rehike uses Twig to render the classic Hitchhiker YouTube layout. Learn about global variables, template structure, and adding or modifying templates."
+---
+
+Rehike generates every HTML page using [Twig v3](https://twig.symfony.com/), a PHP templating engine. All templates live under `template/hitchhiker/` and reproduce the classic YouTube Hitchhiker layout as it appeared between roughly 2013 and 2020. The PHP side populates a structured data model, and the templates convert that model into markup — no data transformation happens inside templates themselves.
+
+## Template structure
+
+The `template/hitchhiker/` directory contains one `.twig` file per page type, plus a set of shared subdirectories for common components. Each page template extends `core.twig`, which acts as the layout root.
+
+<CardGroup cols={2}>
+  <Card title="feed.twig" icon="house">
+    Home feed page. Extends `core.twig` and renders the subscription/browse content grid.
+  </Card>
+  <Card title="watch.twig" icon="play">
+    Video watch page. Sets up the player container and delegates to watch sub-templates.
+  </Card>
+  <Card title="results.twig" icon="magnifying-glass">
+    Search results page. Lists video, channel, and playlist renderer items.
+  </Card>
+  <Card title="channel.twig" icon="user">
+    Channel browse page (both featured and videos/playlists tabs).
+  </Card>
+  <Card title="playlist.twig" icon="list">
+    Playlist view page, including the playlist sidebar panel.
+  </Card>
+  <Card title="embed.twig" icon="code">
+    Embedded player page served at `/embed/{videoId}`.
+  </Card>
+  <Card title="oops.twig" icon="triangle-exclamation">
+    The classic YouTube error page for 404 and similar responses.
+  </Card>
+  <Card title="html5.twig" icon="film">
+    Standalone HTML5 player page used for certain player-only endpoints.
+  </Card>
+</CardGroup>
+
+Additional supporting templates live in these subdirectories:
+
+| Directory | Purpose |
+|---|---|
+| `core/` | Layout shells (`core.twig`, `core_legacy.twig`, `core_spf.twig`), macros, and global JS config fragments |
+| `common/` | Shared component templates (masthead, guide, appbar, watch metadata, channel layouts, etc.) |
+| `page_fragments/` | Small fragments shared between full HTML and SPF (AJAX) responses |
+| `ajax/` | Templates for AJAX-only (non-SPF) partial responses |
+| `rehike/` | Rehike-specific UI templates (settings pages, debugger overlay, etc.) |
+| `error/` | Extended error page layouts |
+| `player/` | Player-specific template components |
+
+## core.twig — the layout root
+
+`core.twig` is the root template that every page template extends. Its primary job is to route to the correct layout shell based on two conditions:
+
+```twig
+{% if yt.spf %}
+    {% set rehike_base_template = "core/core_spf.twig" %}
+{% else %}
+    {% set rehike_base_template = appbarEnabled
+            ? "core/core.twig"
+            : "core/core_legacy.twig"
+    %}\
+{% endif %}
+
+{% extends rehike_base_template %}
+```
+
+- **`core/core.twig`** — the standard Hitchhiker layout with the top appbar (used from 2014 onwards).
+- **`core/core_legacy.twig`** — a no-appbar variant reproducing the earlier 2013 Hitchhiker style.
+- **`core/core_spf.twig`** — outputs a JSON object instead of HTML, used for SPF (AJAX navigation) responses.
+
+Page templates set `appbarEnabled` as a Twig variable to pick between the two HTML layouts. When `yt.spf` is true the JSON shell is always used regardless of `appbarEnabled`.
+
+## Global variables
+
+These variables are available in every template without any import or declaration:
+
+### `yt` — the page state object
+
+`yt` is a `YtApp` instance registered by `TemplateManager::registerGlobalState()`. It carries the entire server-side session state for the current request.
+
+| Property | Type | Description |
+|---|---|---|
+| `yt.page` | object | The current page's data model, set by the controller (`$yt->page = $pageModel`) |
+| `yt.spf` | bool | `true` when this request is an SPF (AJAX navigation) request |
+| `yt.msgs` | object | Map of internationalised string keys to translated values |
+| `yt.title` | string | The document `<title>` for the current page |
+| `yt.hl` | string | BCP-47 locale code (e.g. `en_US`) |
+| `yt.videoId` | string | Video ID of the current watch page (watch pages only) |
+| `yt.appbar` | object | Appbar/nav configuration for the current page |
+
+<Note>
+  New pages must place their data model in `yt.page`. Some older templates in the Rehike source used different conventions; always use `yt.page` for any page you add.
+</Note>
+
+### `rehike` — utilities and configuration
+
+`rehike` is a `RehikeUtilsDelegate` instance exposed globally. It bundles configuration, versioning, and a collection of helper methods used in templates.
+
+| Property / Method | Description |
+|---|---|
+| `rehike.config` | The user's parsed `config.json` as a nested object |
+| `rehike.version` | Rehike version information |
+| `rehike.i18n` | i18n helper — call `rehike.i18n.get("namespace", "key")` |
+| `rehike.getText(obj)` | Extract plain text from an InnerTube text run object |
+| `rehike.getUrl(obj)` | Extract a URL string from an InnerTube endpoint object |
+| `rehike.getThumb(obj, height)` | Resolve the best-fit thumbnail URL at a given height |
+| `rehike.getLockupInfo(renderer)` | Inspect a lockup renderer and return structured info |
+| `rehike.serializeEndpoint(ep)` | Serialise a navigation endpoint to URL-safe base64 protobuf |
+| `rehike.obj2arr(obj)` | Cast a PHP object to an associative array for Twig iteration |
+
+### Using `rehike.config` in templates
+
+Configuration properties from `config.json` are accessed as dot-separated paths on `rehike.config`. The following example (from the attribution template) conditionally prepends a localised label before a channel name based on the user's configuration:
+
+```twig
+<span class="stat attribution">
+    {% if rehike.config.appearance.usernamePrepends %}
+        <span>{{ yt.msgs.usernamePrepend }}</span>
+    {% endif %}
+    <span>{{ rehike.getText(author) }}</span>
+</span>
+```
+
+The same property path used in PHP — `appearance.usernamePrepends` — maps directly onto the nested object in Twig.
+
+<Tip>
+  Configuration properties are defined in `modules/Rehike/ConfigDefinitions.php`. Add a new entry there before referencing it in a template so it gets exported to `config.json` on update.
+</Tip>
+
+## TemplateManager
+
+`modules/Rehike/TemplateManager.php` is the PHP class that owns the Twig environment. It initialises Twig with the `template/hitchhiker/` directory as the filesystem loader root, registers the global `yt` variable, and exposes functions and filters to the template layer.
+
+Key methods:
+
+```php
+// Register the $yt global (called once during bootstrap):
+TemplateManager::registerGlobalState($yt);
+
+// Render a template and return the HTML string:
+$html = TemplateManager::render([], 'watch');
+// Resolves to template/hitchhiker/watch.twig
+
+// Add a custom global variable accessible in all templates:
+TemplateManager::addGlobal('myVar', $value);
+
+// Add a custom Twig function:
+TemplateManager::addFunction('myFunc', fn($arg) => strtoupper($arg));
+
+// Add a custom Twig filter:
+TemplateManager::addFilter('myFilter', fn($str) => trim($str));
+```
+
+`render()` appends `.twig` to the template name automatically, so passing `'watch'` resolves to `watch.twig` inside the views directory.
+
+Twig caches compiled templates to `cache/templates/` with `auto_reload` enabled, so template changes are picked up on the next request without clearing the cache manually.
+
+## page_fragments/ — shared partial fragments
+
+The `page_fragments/` directory contains small template partials that are included by both the full HTML layout (`core/core.twig`) and the SPF JSON layout (`core/core_spf.twig`). This avoids duplicating markup between the two response types.
+
+| Fragment | Shared content |
+|---|---|
+| `alerts.twig` | Page-level alert banners (iterates `yt.page.alerts`) |
+| `content.class.twig` | CSS class string for the `#content` element |
+| `page.class.twig` | CSS class string for the outer `#page` element |
+| `player.class.twig` | CSS class string for the player container |
+| `player_unavailable.twig` | Player unavailable overlay HTML |
+| `player_unavailable.class.twig` | CSS class string for the unavailable overlay |
+| `player_playlist.twig` | Playlist panel HTML shown below the player |
+| `player_playlist.class.twig` | CSS class string for the playlist panel |
+| `ticker_content.twig` | Ticker/breaking-news bar content |
+
+When adding new content that must appear in both navigation-triggered (SPF) and full-page loads, add it as a fragment here and `include` it from both core templates.
+
+## Template conventions
+
+Rehike follows a strict **data-in, markup-out** convention in templates:
+
+- **Templates must not transform data.** Data shaping, API calls, and business logic belong in PHP controllers and models — not in `.twig` files.
+- **Page data lives in `yt.page`.** Set `$yt->page = $pageModel` in the controller. Templates read `yt.page.someProperty`.
+- **Use `rehike.*` helpers for presentation logic** (text extraction, thumbnail resolution, etc.) rather than inline PHP-style expressions.
+- **Block names are standardised** across all page templates: `head_css`, `foot_scripts`, `content`, `appbarContent`, `header`, `page_class`, `body_class`.
+
+## Adding a template for a new page
+
+1. **Create the controller** in `controllers/` and build your page model.
+2. **Register the route** in `router.php` pointing to your controller.
+3. **Create `template/hitchhiker/yourpage.twig`**, extending `core.twig`:
+
+```twig
+{% extends "core.twig" %}
+
+{% set pageType = 'yourpage' %}
+{% set appbarEnabled = true %}
+{% set defaultGuideVisibility = false %}
+
+{% block head_css %}
+{% import 'core/macros.twig' as core %}
+{{ core.css('www-yourpage') }}
+{% endblock %}
+
+{% block content %}
+    {# Render yt.page data here #}
+    <div id="yourpage-container">
+        {{ yt.page.someValue }}
+    </div>
+{% endblock %}
+```
+
+4. **Render the template** from your controller:
+
+```php
+use Rehike\TemplateManager;
+
+// After building $yt->page:
+$response = TemplateManager::render([], 'yourpage');
+```
+
+5. **Add SPF support** by placing any content that must survive navigation in `page_fragments/` and including it from `core/core_spf.twig` — see the [SPF documentation](/reference/spf) for the full pattern.

@@ -1,0 +1,264 @@
+---
+title: "URL Routing and Page Dispatch in Rehike"
+sidebarTitle: "Routing"
+description: "How Rehike's router maps URL patterns to page controllers, handles redirects, and funnels pass-through routes directly to YouTube."
+---
+
+All URL routing in Rehike is defined in a single file: `router.php`, located in the server root. When `Bootloader::startSession()` completes its initialisation sequence it requires this file directly, which runs four static method calls on the `Router` class — `funnel()`, `redirect()`, `get()`, and `post()` — each of which receives an array of pattern-to-destination mappings and evaluates them against the current request URI.
+
+The router processes rules in declaration order. For `get()` and `post()`, the **best match** (last matching rule in iteration order) wins. For `funnel()` and `redirect()`, the first match exits immediately.
+
+## `Router::funnel()` — pass-through to YouTube
+
+Funnelled routes bypass all Rehike processing. The `SimpleFunnel` helper re-issues the exact same request URI against `www.youtube.com` and streams the response back to the browser unchanged. This keeps YouTube's static assets, native APIs, and account pages working without any modification.
+
+The tilde prefix (`~`) on a pattern means *exclude this path from funnelling even though a wider glob would match it*. The `/youtubei/v1/player` endpoint is excluded this way so that it can be handed to a custom proxy controller instead.
+
+```php
+Router::funnel([
+    "/api/*",
+    "~/youtubei/v1/player",           // exclude — handled by InnertubePlayerProxyController
+    "/youtubei/v1/player/heartbeat",
+    "/youtubei/*",                    // all other youtubei/ endpoints pass through
+    "/s/*",                           // static assets
+    "/embed/*",                       // embedded player pages
+    "/yts/*",
+    "/favicon.ico",
+    "/subscribe_embed",
+    "/login",
+    "/logout",
+    "/signin",
+    "/upload",
+    "/t/*",
+    "/howyoutubeworks/*",
+    "/create_channel",
+    "/new",
+    "/supported_browsers",
+    "/getAccountSwitcherEndpoint",
+    "/channel_image_upload/*",
+    "/account",
+    "/account_notifications",
+    "/account_playback",
+    "/account_privacy",
+    "/account_sharing",
+    "/account_billing",
+    "/account_advanced",
+    "/account_transfer_channel",
+    "/channel_image_upload*",
+    "/features",
+    "/testtube",
+    "/t/terms",
+    "/iframe_api",
+    "/signin_prompt",
+    "/post/*",
+    "/feeds/*",
+    "/img/*",
+    "/attribution_link*",
+    "/yt*",
+    "/about/"
+]);
+```
+
+<Note>
+  The `/yt*` glob catches YouTube's reserved footer link paths (e.g. `/yt/about`) that coincidentally look like channel username shorthand. Without this rule they would fall through to `ChannelPageController` and produce a 404.
+</Note>
+
+## `Router::redirect()` — URL normalisations
+
+Redirect rules issue an HTTP `Location` header and terminate the request. Simple string replacements use capture-group backreferences (`$1`); more complex logic uses an anonymous function that receives a `RequestMetadata` object containing the parsed path segments and query parameters.
+
+```php
+Router::redirect([
+    // Clean watch URLs: /watch/dQw4w9WgXcQ → /watch?v=dQw4w9WgXcQ
+    "/watch/(*)" => "/watch?v=$1",
+
+    // Shorts and live aliases → standard watch page
+    "/shorts/(*)" => function($request) {
+        if (isset($request->path[1]))
+            return "/watch?v=" . $request->path[1];
+        else
+            return "/watch";
+    },
+    "/live/(*)" => "/watch?v=$1",
+
+    // Hashtag pages → search results
+    "/hashtag/(*)" => "/results?search_query=$1",
+
+    // Legacy home URL
+    "/feed/what_to_watch/**" => "/",
+
+    // Attribution shorthand
+    "/source/(*)" => function($request) {
+        if (isset($request->path[1]))
+            return "/attribution?v=" . $request->path[1];
+        else
+            return "/attribution";
+    },
+
+    // Transparent redirect link unwrapping
+    "/redirect(/|?)*" => function($request) {
+        if (isset($request->params->q))
+            return urldecode($request->params->q);
+    },
+
+    // Library/profile unification
+    "/feed/library" => "/profile",
+    "/feed/you"     => "/profile",
+
+    // Subscription manager redirect
+    "/subscription_manager" => "/feed/channels",
+
+    // Settings alias
+    "/rehike/settings" => "/rehike/config",
+
+    // Subscription center → channel page with confirmation
+    "/subscription_center?(*)" => function($request) {
+        if ($user = @$request->params->add_user)
+            return "/user/$user?sub_confirmation=1";
+        else if ($user = @$request->params->add_user_id)
+            return "/channel/$user?sub_confirmation=1";
+    }
+]);
+```
+
+## `Router::get()` — GET routes to controllers
+
+Each entry maps a URL glob pattern to a fully-qualified controller class name. The router instantiates the controller, calls `initializeController()`, and then dispatches `get()` or `getAsync()` depending on which interface the class implements.
+
+```php
+Router::get([
+    // Main pages
+    "/"          => FeedPageController::class,
+    "/feed/**"   => FeedPageController::class,
+    "/watch"     => WatchPageController::class,
+
+    // Channel pages — three URL schemes
+    "/user/**"    => ChannelPageController::class,
+    "/channel/**" => ChannelPageController::class,
+    "/c/**"       => ChannelPageController::class,
+
+    // Live chat
+    "/live_chat"        => special\GetLiveChatController::class,
+    "/live_chat_replay" => special\GetLiveChatController::class,
+
+    // AJAX fragment endpoints
+    "/feed_ajax"     => ajax\FeedAjaxController::class,
+    "/related_ajax"  => ajax\RelatedAjaxController::class,
+    "/browse_ajax"   => ajax\BrowseFragmentsController::class,
+    "/addto_ajax"    => ajax\AddtoFragmentsController::class,
+    "/share_ajax"    => ajax\ShareFragmentsAjax::class,
+    "/picker_ajax"   => ajax\PickerFragmentsAjax::class,
+
+    // Other content pages
+    "/results"   => ResultsPageController::class,
+    "/playlist"  => PlaylistPageController::class,
+    "/oops"      => OopsPageController::class,
+    "/html5"     => Html5PageController::class,
+    "/attribution" => AttributionPageController::class,
+    "/profile"   => ProfileRedirectEndpointController::class,
+    "/channel_switcher" => ChannelSwitcherPageController::class,
+
+    // Rehike internal pages
+    "/rehike/version"     => rehike\RehikeVersionPageController::class,
+    "/rehike/static/**"   => rehike\StaticRouter::class,
+    "/rehike/config"      => rehike\RehikeConfigPageController::class,
+    "/rehike/config/**"   => rehike\RehikeConfigPageController::class,
+    "/rehike/ajax/git_ajax" => rehike\ajax\RehikeVersionGitAjaxController::class,
+    "/rehike/server_info" => rehike\RehikeServerInfoPageController::class,
+    "/rehike/extensions"  => rehike\RehikeExtensionsPageController::class,
+
+    // Legacy annotation and metadata endpoints
+    "/annotations_invideo" => ajax\AnnotationsInvideoController::class,
+    "/get_video_metadata"  => ajax\GetVideoMetadataController::class,
+
+    // No-op endpoints (advertising / tracking suppression)
+    "/pagead"       => function() { exit(); },
+    "/player_204"   => function() { exit(); },
+    "/generate_204" => function() { exit(); },
+
+    // Default: channel controller handles username shorthand URLs like /PewDiePie
+    "default" => ChannelPageController::class
+]);
+```
+
+<Tip>
+  The `"default"` key acts as a catch-all for any GET request that does not match a named pattern. `ChannelPageController` is used here because YouTube allows bare channel usernames as URL paths (e.g. `/@mkbhd`). The controller is also responsible for rendering the 404 page when a channel lookup fails.
+</Tip>
+
+## `Router::post()` — POST routes and AJAX endpoints
+
+POST routing follows the same pattern. Most POST targets are the AJAX endpoints that the classic YouTube frontend used for in-page partial updates — comment loading, subscription toggling, playlist management, and so on.
+
+```php
+Router::post([
+    // InnerTube player proxy (excluded from funnel above)
+    "/youtubei/v1/player" => special\InnertubePlayerProxyController::class,
+
+    // Feed and watch fragments
+    "/feed_ajax"               => ajax\FeedAjaxController::class,
+    "/browse_ajax"             => ajax\BrowseFragmentsController::class,
+    "/watch_fragments2_ajax"   => ajax\WatchFragments2AjaxController::class,
+    "/related_ajax"            => ajax\RelatedAjaxController::class,
+
+    // Playlist management
+    "/playlist_video_ajax" => ajax\PlaylistVideoAjaxController::class,
+    "/playlist_ajax"       => ajax\PlaylistAjaxController::class,
+
+    // Social / account actions
+    "/subscription_ajax"      => ajax\SubscriptionAjaxController::class,
+    "/service_ajax"           => ajax\ServiceAjaxController::class,
+    "/comment_service_ajax"   => ajax\CommentServiceAjaxController::class,
+    "/addto_ajax"             => ajax\AddtoFragmentsController::class,
+    "/picker_ajax"            => ajax\PickerFragmentsAjax::class,
+    "/live_events_reminders_ajax" => ajax\LiveEventsRemindersAjaxController::class,
+    "/delegate_account_ajax"  => ajax\DelegateAccountFragmentsController::class,
+
+    // Rehike configuration mutations
+    "/rehike/update_config" => rehike\ajax\RehikeUpdateConfigRouter::class,
+
+    // Legacy annotation and metadata endpoints
+    "/annotations_invideo" => ajax\AnnotationsInvideoController::class,
+    "/get_video_metadata"  => ajax\GetVideoMetadataController::class,
+
+    // Suppress advertising / tracking POST requests
+    "/pagead"       => function() { exit(); },
+    "/player_204"   => function() { exit(); },
+    "/generate_204" => function() { exit(); },
+
+    // Default: channel controller (same rationale as GET)
+    "default" => ChannelPageController::class
+]);
+```
+
+## Pattern syntax
+
+The router converts glob-style patterns to regular expressions internally using `GlobToRegexp::convert()`. The supported wildcards are:
+
+| Pattern | Meaning |
+|---|---|
+| `*` | Match any single path segment (no slashes) |
+| `**` | Match any path suffix (including slashes) |
+| `(*)` | Capturing group — value available as `$1` in redirect targets |
+| `~pattern` | Negation — exclude this path from matching (funnel only) |
+| `default` | Catch-all key — matches when no other pattern matches |
+
+## Controller dispatch flow
+
+Once a pattern matches, `Router::invokeHandlerForMatch()` performs the following steps:
+
+1. Verifies the class exists and implements `IController`.
+2. Checks whether the class also implements `IGetControllerAsync` or `IPostControllerAsync`.
+3. Instantiates the controller and calls `initializeController(new RequestMetadata())`.
+4. For synchronous controllers, calls `get()` or `post()` directly.
+5. For async controllers, calls `getAsync()` or `postAsync()` and runs the event loop via `Bootloader::handleAsyncControllerRequest()`.
+
+```php
+$instance = new $pointer();
+$instance->initializeController(new RequestMetadata());
+
+if ($isControllerAsync) {
+    Bootloader::handleAsyncControllerRequest($instance->getAsync());
+} else {
+    $instance->get();
+}
+```

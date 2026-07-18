@@ -1,0 +1,116 @@
+---
+title: "How Rehike Works: Server-Side YouTube Proxy Architecture"
+sidebarTitle: "Overview"
+description: "Rehike intercepts YouTube requests and renders them server-side using archived Hitchhiker templates and live InnerTube API data. Learn the full request flow."
+---
+
+Rehike is a custom PHP server application that sits between your browser and YouTube, acting as a man-in-the-middle proxy. Every request your browser makes to YouTube is intercepted by Rehike, which fetches the necessary data from YouTube's private InnerTube API, restructures it using PHP models, and renders the result with archived Twig templates that replicate the classic Hitchhiker layout (2013–2020). The final HTML is assembled entirely server-side before being sent to the browser.
+
+## Why server-side rendering?
+
+The natural alternative to a self-hosted server would be a browser extension. While simpler to distribute, an extension approach would always produce an uncanny valley effect: the modern YouTube page loads first, triggers `DOMContentLoaded`, and then the extension tears it apart and rebuilds it. No matter how fast the extension runs, the visual transition is unavoidable.
+
+A server application completely sidesteps this problem. The browser never sees a Polymer response — it receives fully-rendered Hitchhiker HTML from the very first byte. There are no intermediate states, no layout flashes, and no JavaScript hooks into YouTube's XHR stack needed.
+
+<Note>
+  The browser extension approach is served by a separate project, [V3 (Vorapis)](https://vorapis.pages.dev). Rehike deliberately chose the server-side path for the reasons above.
+</Note>
+
+## The two data sources
+
+Every Rehike page is assembled from two entirely separate inputs:
+
+<CardGroup cols={2}>
+  <Card title="InnerTube API" icon="youtube">
+    YouTube's private internal API, used by YouTube's own web frontend. Rehike sends authenticated POST requests to `https://www.youtube.com/youtubei/v1/{action}` to retrieve live page data — video metadata, search results, channel feeds, and more.
+  </Card>
+  <Card title="Hitchhiker Templates" icon="file-code">
+    Archived Twig templates stored in `template/hitchhiker/` that reproduce the visual structure of the 2013–2020 YouTube layout. These templates consume PHP model objects derived from InnerTube responses.
+  </Card>
+</CardGroup>
+
+## Request lifecycle
+
+The following steps describe what happens from the moment a browser sends a request to Rehike until it receives a rendered HTML response.
+
+<Steps>
+  <Step title="Browser sends request">
+    The browser makes an HTTP request to the Rehike server at the URL it would normally use for YouTube (e.g. `https://www.youtube.com/watch?v=dQw4w9WgXcQ`). Rehike is configured to handle all YouTube traffic.
+  </Step>
+  <Step title="index.php — entry point">
+    Every request enters through `index.php`. This file starts output buffering, runs `integrity_check.php` to verify that PHP 8.0+ is available and the environment is sane, loads the Composer and Rehike autoloaders, and then calls `Bootloader::startSession()`.
+
+    ```php
+    ob_start();
+    set_include_path($_SERVER['DOCUMENT_ROOT']);
+
+    (include "integrity_check.php") or die("Rehike fatal error ...");
+
+    require "vendor/autoload.php";
+    require "includes/rehike_autoloader.php";
+
+    \Rehike\Boot\Bootloader::startSession();
+    ```
+  </Step>
+  <Step title="Bootloader initialises the session">
+    `Bootloader::startSession()` orchestrates the entire boot sequence. It runs init tasks (config manager, network layer, sign-in), creates the global `$yt` state object via `YtStateManager::init()`, and then runs setup tasks (template manager, i18n, ControllerV2, player config, visitor data). After boot, it calls `postboot()`, which requires `router.php`.
+
+    ```php
+    public static function startSession(): void
+    {
+        \Rehike\Profiler::start("rhboot");
+        self::boot();       // runInitTasks() + runSetupTasks()
+        \Rehike\Profiler::end("rhboot");
+        self::postboot();   // requires router.php
+        self::shutdown();
+    }
+    ```
+  </Step>
+  <Step title="Router evaluates the request">
+    `router.php` is the single routing table for all of Rehike. The `Router` class processes three categories of route in order: **funnel** (pass through to YouTube unchanged), **redirect** (issue an HTTP redirect), and **get**/**post** (dispatch to a controller). The first matching rule wins.
+  </Step>
+  <Step title="Funnelled routes bypass Rehike entirely">
+    Paths like `/api/*`, `/youtubei/*`, `/embed/*`, and `/s/*` are funnelled directly to `www.youtube.com` and the response is streamed back to the browser without any Rehike processing. This keeps static assets, YouTube's own API surface, and embeds working correctly.
+  </Step>
+  <Step title="Controller handles the page request">
+    For rendered routes (e.g. `/watch`, `/results`, `/`), the router instantiates the matching controller class and calls its `get()` or `getAsync()` method. The controller fires one or more InnerTube API requests, awaits their responses, passes the data through PHP models, and sets `$yt->page` to the resulting model object.
+  </Step>
+  <Step title="InnerTube API returns live data">
+    `Network::innertubeRequest()` POSTs to `https://www.youtube.com/youtubei/v1/{action}` with the WEB client context and any forwarded authentication cookies. The response is a JSON object containing everything YouTube's own frontend would use to render the page.
+  </Step>
+  <Step title="Models restructure the response">
+    The raw InnerTube JSON is passed into model classes (e.g. `WatchBakery`) that normalise and transform the data into typed PHP objects. This layer insulates templates from upstream API shape changes.
+  </Step>
+  <Step title="Twig template renders HTML">
+    The controller's parent `NirvanaController` hands the `$yt` state object to the Twig template engine. The template at `template/hitchhiker/{page}.twig` iterates the model, outputs HTML indistinguishable from what the original YouTube Hitchhiker server would have produced, and the result is sent to the browser.
+  </Step>
+</Steps>
+
+## Boot sequence at a glance
+
+```
+index.php
+  └─ integrity_check.php          (PHP version gate)
+  └─ Bootloader::startSession()
+       ├─ boot()
+       │    ├─ runInitTasks()     (config, network, sign-in)
+       │    └─ runSetupTasks()    (templates, i18n, ControllerV2, player)
+       └─ postboot()
+            └─ require router.php
+                 ├─ Router::funnel()    → SimpleFunnel → YouTube
+                 ├─ Router::redirect()  → HTTP 3xx
+                 └─ Router::get/post()  → Controller → Model → Twig → HTML
+```
+
+## Funnelled vs rendered routes
+
+Not every URL needs Rehike's rendering engine. The router splits traffic into two categories:
+
+| Category | Examples | What happens |
+|---|---|---|
+| **Funnelled** | `/api/*`, `/youtubei/*`, `/embed/*`, `/s/*`, `/login` | Request is forwarded verbatim to `www.youtube.com` and the raw response is returned |
+| **Rendered** | `/`, `/watch`, `/results`, `/channel/**` | Rehike fetches InnerTube data, builds a model, and renders Twig HTML |
+
+<Tip>
+  The `/youtubei/v1/player` endpoint is a special case: it is **excluded** from the general `youtubei/*` funnel rule (prefixed with `~` in `router.php`) and instead routed to `InnertubePlayerProxyController`, which applies Rehike-specific player processing before returning the response.
+</Tip>

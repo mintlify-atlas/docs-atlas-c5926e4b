@@ -1,0 +1,94 @@
+---
+title: "Rehike: Self-Hosted Classic YouTube Frontend"
+sidebarTitle: "Introduction"
+description: "Learn what Rehike is, how it works as a server-side YouTube proxy, and why it differs from browser extensions. No extension required."
+---
+
+Rehike is a custom web frontend server for YouTube, written in PHP. It accurately restores the classic YouTube layout and feel known as **Hitchhiker** — the design YouTube used from **2013 to 2020** — valued for its speed, simplicity, and clean visual hierarchy. Rather than patching the YouTube page after it loads, Rehike acts as a man-in-the-middle server between you and YouTube: it intercepts your requests, fetches the underlying YouTube data, and renders the entire page itself using its own templating engine. The result is a genuine Hitchhiker-era experience with no trace of the modern interface.
+
+## How Rehike Works
+
+When you browse through a Rehike instance, your browser never directly loads YouTube's frontend. Instead:
+
+1. Your request hits the Rehike PHP server.
+2. Rehike fetches the necessary data from YouTube's internal APIs (InnerTube).
+3. Rehike renders the response using its own Twig templates, faithfully reproducing the Hitchhiker layout.
+4. Your browser receives a fully-formed classic YouTube page.
+
+This architecture keeps Rehike entirely server-side. There is no JavaScript injection, no DOM manipulation after load, and no dependency on any particular browser.
+
+## Why a Server App, Not a Browser Extension?
+
+Browser extensions that restore classic YouTube must wait for the modern page to load before modifying it. This causes a visible flash of the new interface before the extension kicks in — the **DOMContentLoaded problem**. Extensions are also constrained by browser APIs, limited in what they can intercept and rewrite, and tied to specific browsers.
+
+Rehike sidesteps all of this by operating **over** the browser rather than inside it:
+
+- **No DOM flickering** — the classic layout is served from the start; the modern interface never loads.
+- **Browser independence** — any browser that can make HTTP requests works: Firefox, Chrome, Safari, curl, or anything else.
+- **Greater portability** — because Rehike runs on your own server or machine, it can be used across multiple devices on your network without installing anything on each one.
+- **Unrestricted rendering** — Rehike controls the entire HTML output, not just a post-load patch.
+
+<Note>
+  Rehike is currently in active development. You should not expect a perfect user experience. If you encounter problems, [please open an issue](https://github.com/Rehike/Rehike/issues) so the maintainers can track them.
+</Note>
+
+## What Rehike Is NOT
+
+- **Not a browser extension.** Rehike runs on a PHP server and has no browser extension component.
+- **Not an automated installer.** There is currently no one-click setup wizard. Installation is a manual process, though it is straightforward for anyone comfortable with PHP and Apache.
+- **Not an official YouTube product.** Rehike is an independent open-source project with no affiliation with Google or YouTube.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Classic Hitchhiker Layout" icon="film">
+    Full restoration of the YouTube design used between 2013 and 2020, including the dark sidebar, classic video player proportions, and original typography.
+  </Card>
+  <Card title="Return YouTube Dislike" icon="thumbs-down">
+    Built-in integration with the [Return YouTube Dislike API](https://www.returnyoutubedislike.com/) to restore dislike counts on videos.
+  </Card>
+  <Card title="SponsorBlock Compatibility" icon="shield">
+    CSS fixes and layout adjustments that ensure SponsorBlock works correctly alongside the restored interface.
+  </Card>
+  <Card title="Ad Blocking" icon="ban">
+    Built-in ad blocking support, enabled by default, so you get a clean viewing experience without third-party tools.
+  </Card>
+  <Card title="Configurable Branding" icon="palette">
+    Choose between three branding eras: the 2024 Ringo2 logo, the 2017 Ringo logo, or the 2015 flat logo — all selectable from the config UI.
+  </Card>
+  <Card title="Browser Independent" icon="globe">
+    Because Rehike is server-side, it works with any browser or HTTP client on any device that can reach your server.
+  </Card>
+  <Card title="Moving Thumbnails" icon="play">
+    Animated thumbnail previews on hover, just like the original Hitchhiker experience.
+  </Card>
+  <Card title="Built-in Debugger" icon="bug">
+    An optional developer debugger that can be enabled from the advanced configuration for inspecting page rendering.
+  </Card>
+</CardGroup>
+
+## Prefer a Browser Extension?
+
+If you would rather have a quick, zero-server-setup option, check out the friend project **Vorapis 2013 / V3** — a browser extension that restores the classic YouTube layout in a very similar manner.
+
+<Card title="Vorapis 2013 / V3" icon="puzzle-piece" href="https://vorapis.pages.dev">
+  Download the V3 browser extension at vorapis.pages.dev. It is the recommended option for users who do not want to run their own server.
+</Card>
+
+## Acknowledgements
+
+Rehike is built on the shoulders of excellent open-source software and services:
+
+| Dependency | Purpose |
+|---|---|
+| [Composer](https://getcomposer.org) | PHP dependency management |
+| [Twig](https://twig.symfony.com) | Templating engine for HTML rendering |
+| [Protocol Buffers](https://developers.google.com/protocol-buffers/) | Serialization for YouTube InnerTube API communication |
+| [Return YouTube Dislike API](https://www.returnyoutubedislike.com/) | Restoring dislike counts on videos |
+| [BlueLibraries DNS](https://github.com/bluelibraries/dns) | DNS resolution for configurable upstream addresses |
+
+Use of these third-party services is governed by their respective licenses. Where possible, their use is optional and can be toggled in the Rehike configuration.
+
+## License
+
+All original Rehike code authored by The Rehike Maintainers, Isabella Lulamoon, or Aubrey Pankow is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. You are free to use, modify, and distribute it as long as you distribute the source code and maintain the MPL-2.0 license. Third-party dependencies retain their own respective licenses.
